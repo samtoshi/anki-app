@@ -2,7 +2,7 @@ import { schedule, dayIndex, cardStatus } from './srs.js';
 import { createAdapter } from './sync.js';
 import { dailyFromReviews, lastGrades, charMisses } from './merge.js';
 
-export const DEFAULT_SETTINGS = { newPerDay: 10, nickname: '', handwriting: 'auto', recognition: 'off' };
+export const DEFAULT_SETTINGS = { newPerDay: 10, nickname: '', handwriting: 'auto', recognition: 'on', recogV: 2 };
 
 const rid = () => Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
 
@@ -20,7 +20,10 @@ export function migrate(d) {
   }
   if (d.v === 2) {
     const e = emptyData();
-    return { ...e, ...d, settings: { ...e.settings, ...(d.settings || {}) } };
+    const settings = { ...e.settings, ...(d.settings || {}) };
+    // 以前は読み取りが「OFF」が初期値だった → 一度だけ ON にする（あとで OFF にすればそのまま）
+    if ((d.settings || {}).recogV !== 2) { settings.recognition = 'on'; settings.recogV = 2; }
+    return { ...e, ...d, settings };
   }
   return emptyData();
 }

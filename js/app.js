@@ -2,7 +2,7 @@ import { GRADES, dayIndex, dayToISO, previewLabel, buildQueue, cardStatus, isDue
 import { Store } from './store.js';
 import { computeStats } from './stats.js';
 import { selectReviewCards, isWeak } from './review.js';
-import { check, redoPlan, applyRedo, autoGrade, isGradable, readingOf, isKanji } from './grade.js';
+import { check, redoPlan, applyRedo, autoGrade, isGradable, readingOf, isKanji, writeTarget, normalize } from './grade.js';
 import { HandPad, isTablet } from './handwriting.js';
 import { availableEngine, recognize } from './recognize.js';
 import { CloudSync, loadFirebase, signInGoogle, signOut, loadContent, roleOf } from './cloud.js';
@@ -57,6 +57,8 @@ function counts(cards, today) {
   return { due, fresh, mastered, total: cards.length };
 }
 
+/** 漢字で書く答えのカード（手書きを OFF にしていなければ、スマホでも手書きにする） */
+const writeDefault = (card) => !!card.w || (card.input === 'write') || (isGradable(card) && [...normalize(String(writeTarget(card)).replace(/[（(][^）)]*[）)]/g, ''))].some(isKanji));
 const hwOn = () => store.settings.handwriting === 'on' || (store.settings.handwriting === 'auto' && isTablet());
 
 function greeting() {
@@ -243,7 +245,7 @@ function renderCard() {
   if (s.i >= s.items.length) return renderDone();
   const { card, deck } = s.items[s.i];
   // 「書いて答える」カード（四字熟語など）は、手書きを OFF にしていない限り、スマホでも手書きにする
-  const hw = hwOn() || (card.input === 'write' && !!card.w && store.settings.handwriting !== 'off');
+  const hw = hwOn() || (writeDefault(card) && store.settings.handwriting !== 'off');
   s.phase = 'q'; s.hint = false; s.cur = { start: Date.now(), plan: null, miss: new Set(), tries: 0, recog: '', result: null, fixed: false, sugg: null, img: null, override: false };
   const left = s.items.length - s.i;
   const pct = Math.round((s.done / Math.max(1, s.done + left)) * 100);
@@ -401,10 +403,17 @@ async function doCheck() {
   if (!redo) c.img = s.pad.thumbnail();
   s.phase = 'checking'; refresh();
   let text;
-  try { text = await recognize(s.engine, s.pad); }
+  const target = redo ? c.plan.expected : normalize(String(writeTarget(card)).replace(/[（(][^）)]*[）)]/g, ''));
+  const ctx = { cells: s.pad.masu && s.pad.cells ? s.pad.cells : null, len: [...target].length, kanji: [...target].some(isKanji) };
+  try { text = await recognize(s.engine, s.pad, ctx); }
   catch (e) {
     console.warn(e);
-    toast('よみとりできなかったよ。自分で答え合わせしてね');
+    const code = e && e.code;
+    toast(code === 'ai-quota' ? '今日のAI読み取りはおしまい。自分で答え合わせしてね'
+      : code === 'ai-offline' ? '電波がないので、自分で答え合わせしてね'
+      : code === 'ai-appcheck' ? 'AIの読み取りがいま使えません。自分で答え合わせしてね'
+      : 'よみとりできなかったよ。自分で答え合わせしてね');
+    if (code === 'ai-quota' || code === 'ai-appcheck') s.engine = null; // この回のあとは自己採点で進める
     s.phase = 'answer'; c.sugg = null; refresh(); return;
   }
   if (session !== s) return;
@@ -565,6 +574,7 @@ function viewLogin(msg = '') {
       <p class="small">家族専用のアプリです。登録されたアカウントでログインしてください。</p>
       <button class="btn big primary" id="gBtn">Google でログイン</button>
       <p class="small" id="lmsg">${esc(msg)}</p>
+      <p class="small recaptcha-note">このサイトは reCAPTCHA で保護されています（Google の<a href="https://policies.google.com/privacy" target="_blank" rel="noopener">プライバシーポリシー</a>と<a href="https://policies.google.com/terms" target="_blank" rel="noopener">利用規約</a>）。</p>
     </section>`;
   $('#gBtn').onclick = async () => {
     $('#lmsg').textContent = 'ログインしています…';
@@ -621,9 +631,10 @@ function viewSettings() {
       <label>答えを指やペンで書く
         <select id="hw">${opt('auto', s.handwriting, `自動（タブレットはON）${isTablet() ? '…いまON' : '…いまOFF'}`)}${opt('on', s.handwriting, 'ON')}${opt('off', s.handwriting, 'OFF')}</select></label>
       <label>書いた字を読み取って答え合わせ（AI）
-        <select id="rc">${opt('off', s.recognition, 'OFF（自分で答え合わせ）')}${opt('on', s.recognition, 'ON')}</select></label>
-      <p class="small" id="rcInfo">${appCheckSiteKey ? '' : '※ AIでの読み取りは、Firebase の AI Logic と App Check の設定が終わると使えます（Chrome の端末内の読み取りが使える端末では、それを使います）。'}
-      ON にすると、「答え合わせ」を押したときだけ、書いた字の画像を Google の AI（Firebase AI Logic / Gemini）に送って読み取ります。画像は保存しません。</p>
+        <select id="rc">${opt('on', s.recognition, 'ON（AIが読んで答え合わせ）')}${opt('off', s.recognition, 'OFF（自分で答え合わせ）')}</select></label>
+      <p class="small" id="rcInfo">「答え合わせ」を押したときだけ、書いた字の画像を Google の AI（Firebase AI Logic / Gemini）に送って読み取ります。送るのは画像だけで、名前やメールは送りません。画像は保存しません。
+      読み取れないとき・1日の上限に達したときは、自分で答え合わせになります。AIの読みまちがいは「🙆 あってたよ」で直せます。${appCheckSiteKey ? '' : '<br>※ App Check の設定がまだなので、AIでの読み取りは使えません。'}</p>
+      <p class="small recaptcha-note">このサイトは reCAPTCHA で保護されています（Google の<a href="https://policies.google.com/privacy" target="_blank" rel="noopener">プライバシーポリシー</a>と<a href="https://policies.google.com/terms" target="_blank" rel="noopener">利用規約</a>が適用されます）。</p>
     </section>
     </div><div>
     <section class="form" id="cloudBox"></section>

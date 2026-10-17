@@ -29,7 +29,10 @@
 ## D. AI 機能（任意）
 
 手書きの AI 読み取りを使うときだけ：AI Services → AI Logic → Get started → Gemini Developer API、
-さらに App Check（reCAPTCHA Enterprise）の設定が必要です（くわしい手順は別にお知らせします）。
+さらに App Check（reCAPTCHA v3）にこのウェブアプリを登録します（サイトキーは js/firebase-config.js の appCheckSiteKey）。
+- モデルは無料枠のもの（js/firebase-config.js の aiModels。上から順に使い、上限に達したら次へ）
+- 読み取りに送るのは手書きの画像と「向き・字数・漢字かどうか」だけ。名前・メール・正解の文字は送りません
+- 読み取れない・上限・App Check エラーのときは自分で答え合わせに戻ります
 設定しなくても、アプリは自分で答え合わせする形でそのまま使えます。
 
 ## 注意

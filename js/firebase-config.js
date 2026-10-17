@@ -10,13 +10,13 @@ export const firebaseConfig = {
   appId: '1:1050192493102:web:68a291191cb3687815fdbf',
 };
 
-// 手書きの読み取り（Firebase AI Logic / Gemini Developer API）で使うモデル
-export const aiModel = 'gemini-3.5-flash';
+// 手書きの読み取り（Firebase AI Logic / Gemini Developer API・無料枠）で使うモデル。
+// 上から順に使い、1日の上限に達した・使えないモデルは、その日は次のモデルにかえます。
+export const aiModels = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
 
-// App Check：reCAPTCHA Enterprise のサイトキーを入れると有効になります。
-// クラウド記録だけなら空でも動きます。AI読み取り（AI Logic）は、2026年7月以降の新しい設定では
-// App Check が自動で「適用」になるため、このキーがないと読み取りが失敗します（失敗したら自分で答え合わせに戻ります）。
-export const appCheckSiteKey = '';
+// App Check（reCAPTCHA v3）のサイトキー。公開されても大丈夫な値です（このサイトのドメインでしか使えません）。
+// AI読み取り（AI Logic）は App Check のトークンがないと使えません。失敗したら自分で答え合わせに戻ります。
+export const appCheckSiteKey = '6LdswPMtAAAAAAfQN0WkM5gqpm3qQZidO_Se0sBT';
 
 export function isFirebaseConfigured(cfg = firebaseConfig) {
   return !!(cfg && cfg.apiKey && cfg.projectId && !String(cfg.apiKey).startsWith('YOUR') && !String(cfg.projectId).startsWith('YOUR'));

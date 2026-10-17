@@ -26,9 +26,13 @@ export function loadFirebase() {
     const appM = await import(CDN + 'firebase-app.js');
     const emu = emulatorCfg();
     const app = appM.initializeApp(emu ? { apiKey: 'demo-key', projectId: emu.projectId, appId: 'demo', authDomain: 'localhost' } : firebaseConfig);
+    let appCheck = null;
     if (appCheckSiteKey && !emu) {
-      const ac = await import(CDN + 'firebase-app-check.js');
-      ac.initializeAppCheck(app, { provider: new ac.ReCaptchaEnterpriseProvider(appCheckSiteKey), isTokenAutoRefreshEnabled: true });
+      // App Check はほかのサービスより先に。失敗してもログインと記録はそのまま使える
+      try {
+        const ac = await import(CDN + 'firebase-app-check.js');
+        appCheck = ac.initializeAppCheck(app, { provider: new ac.ReCaptchaV3Provider(appCheckSiteKey), isTokenAutoRefreshEnabled: true });
+      } catch (e) { console.warn('App Check', e); }
     }
     const authM = await import(CDN + 'firebase-auth.js');
     const fs = await import(CDN + 'firebase-firestore.js');
@@ -43,7 +47,7 @@ export function loadFirebase() {
       fs.connectFirestoreEmulator(db, emu.host, emu.fsPort);
     }
     await auth.authStateReady();
-    return { app, auth, authM, fs, db };
+    return { app, auth, authM, fs, db, appCheck };
   })().catch((e) => { fbPromise = null; throw e; });
   return fbPromise;
 }

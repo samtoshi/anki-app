@@ -239,3 +239,4 @@ small { font-size: .78em; color: var(--mute); font-weight: normal; }
 .login details { margin-top: 14px; }
 .login summary { cursor: pointer; color: #8a7a90; font-size: 14px; padding: 6px 0; }
 .login input { width: 100%; min-width: 0; }
+.grecaptcha-badge{visibility:hidden}.recaptcha-note{font-size:.72rem;opacity:.7}.recaptcha-note a{color:inherit}

@@ -167,3 +167,14 @@ test('四字熟語（意味→漢字4字）：答え合わせと、まちがえ�
   // 「々」の書き方のちがいも正解
   assert.equal(check({ a: '正々堂々', w: '正々堂々', alts: ['正正堂堂'] }, '正正堂堂').correct, true);
 });
+
+test('AI読み取り：エラーの種類と、送る文に答えが入らないこと', async () => {
+  globalThis.navigator ??= { onLine: true };
+  const { aiErrorKind, PROMPT } = await import('../js/recognize.js');
+  assert.equal(aiErrorKind({ message: '[429 ] Resource has been exhausted (e.g. check quota).' }), 'quota');
+  assert.equal(aiErrorKind({ message: '[404 ] models/gemini-x is not found' }), 'model');
+  assert.equal(aiErrorKind({ message: '[401 ] Firebase App Check token is invalid.' }), 'appcheck');
+  const p = PROMPT('h', { cells: 4, len: 4, kanji: true });
+  assert.match(p, /マス目は4個/); assert.match(p, /漢字/);
+  assert.ok(!/@|まな|一石二鳥/.test(p));
+});
