@@ -32,7 +32,10 @@ async function aiInstance() {
   return aiP;
 }
 const models = new Map();
-// 考える量は「128トークンまで」（本番で計測：LOW より速く、時間のばらつきも小さい。まちがった字も直さない）
+// 読み取りは「考える量 64 トークンまで」・画像は長い辺 384px（本番で計測 2026-10-18：
+//   640px・128 より、まちがった字を正しい字に直してしまうことがなく（35/35）、速さは同じくらい。
+//   画像の解像度を下げる設定（mediaResolution LOW/MEDIUM）は速く安いが、まちがった字を直してしまうので使わない。
+//   1マスずつ切って送るやり方は、遅く・トークンが多く・直してしまうこともあったので使わない）
 async function modelFor(name, kind = 'read') {
   const key = name + ':' + kind;
   if (!models.has(key)) {
@@ -45,7 +48,7 @@ async function modelFor(name, kind = 'read') {
         responseSchema: schema,
         maxOutputTokens: 1500, // 考える分（thinking）もふくむ。少ないと答えが途中で切れる
         temperature: kind === 'read' ? 0 : kind === 'msg' ? 0.9 : 0.4,
-        thinkingConfig: { thinkingBudget: kind === 'read' ? 128 : 256 },
+        thinkingConfig: { thinkingBudget: kind === 'read' ? 64 : 256 },
       },
     }));
   }
@@ -122,8 +125,22 @@ function parseText(res) {
   catch { throw Object.assign(new Error('読み取りの答えの形がへんです'), { code: 'ai-truncated' }); }
 }
 
+export const READ_IMG_MAX = 384;
+// たまに返事がとても遅いことがある（本番で 8〜20 秒）。4 秒たっても返事がなければ、同じ問い合わせをもう1つ送って、早いほうを使う
+// （ふだんは1回だけ。2回目を送るのは1割くらい）
+const HEDGE_MS = 4000;
+export function hedged(call, ms) {
+  return new Promise((resolve, reject) => {
+    let fails = 0, n = 1, done = false;
+    const fin = (ok, v) => { if (done) return; if (ok) { done = true; clearTimeout(t); resolve(v); } else if (++fails >= n) { done = true; clearTimeout(t); reject(v); } };
+    const run = () => { try { call().then((v) => fin(true, v), (e) => fin(false, e)); } catch (e) { fin(false, e); } };
+    const t = setTimeout(() => { if (!done) { n = 2; run(); } }, ms);
+    run();
+  });
+}
+
 async function geminiRead(pad, ctx) {
-  const img = pad.toImage({ max: 640 }); // 小さめの画像で送る（料金・通信量を少なく）
+  const img = pad.toImage({ max: READ_IMG_MAX }); // 小さめの画像で送る（速さ・まちがい字をそのまま読む・料金）
   if (!img) return '';
   const list = aiModels.filter((m) => !skipped().includes(m));
   if (!list.length) throw Object.assign(new Error('今日のAI読み取りの上限に達しました'), { code: 'ai-quota' });
@@ -131,7 +148,8 @@ async function geminiRead(pad, ctx) {
   for (const name of list) {
     try {
       const model = await modelFor(name);
-      const res = await withTimeout(model.generateContent([PROMPT(pad.dir, ctx), { inlineData: { data: img.base64, mimeType: 'image/png' } }]), 20000);
+      const parts = [PROMPT(pad.dir, ctx), { inlineData: { data: img.base64, mimeType: 'image/png' } }];
+      const res = await withTimeout(hedged(() => model.generateContent(parts), HEDGE_MS), 20000);
       return parseText(res.response);
     } catch (e) {
       last = e;

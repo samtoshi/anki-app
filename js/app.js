@@ -779,7 +779,7 @@ function scheduleSpec() {
     const ctx = { cells: s.pad.cellCount(), layout: s.pad.layout(), len: [...target].length, kanji: [...target].some(isKanji) };
     c.spec = { ver: c.ver, p: recognize(s.engine, s.pad, ctx) };
     c.spec.p.catch(() => {});
-  }, 900);
+  }, 600);
 }
 function countInkedCells(pad) {
   const set = new Set();
