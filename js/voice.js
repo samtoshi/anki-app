@@ -19,15 +19,28 @@ export function speakText(t) {
   return String(t || '').replace(/（[ぁ-んー・]+）/g, '').replace(/[①-⑳]/g, (c) => `${c.charCodeAt(0) - 0x245f}つ目、`).replace(/[「」『』]/g, '').replace(/\n/g, '。');
 }
 
+let speakGen = 0; // 新しく読む・止めるたびにふえる（声のじゅんびを待つあいだに次のカードへ進んだら、前の問題は読まない）
 export async function speak(text, { rate = 1 } = {}) {
   if (!canSpeak()) return;
+  const gen = ++speakGen;
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(speakText(text));
   u.lang = 'ja-JP'; u.rate = rate;
   const v = await jaVoice(); if (v) u.voice = v;
+  if (gen !== speakGen) return;
   return new Promise((res) => { u.onend = u.onerror = () => res(); speechSynthesis.speak(u); });
 }
-export function stopSpeak() { if (canSpeak()) speechSynthesis.cancel(); }
+export function stopSpeak() { speakGen++; if (canSpeak()) speechSynthesis.cancel(); }
+
+/** iOS Safari は、さいしょの読み上げを「タップの中」でしか始められないので、さいしょのタップで空の読み上げをしておく */
+export function unlockSpeechOnFirstTap() {
+  if (!canSpeak() || typeof document === 'undefined') return;
+  const go = () => {
+    document.removeEventListener('pointerdown', go, true); document.removeEventListener('touchend', go, true); document.removeEventListener('click', go, true);
+    try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch {}
+  };
+  document.addEventListener('pointerdown', go, true); document.addEventListener('touchend', go, true); document.addEventListener('click', go, true);
+}
 
 const SR = typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
 export const canListen = () => !!SR;

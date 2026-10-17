@@ -26,3 +26,17 @@ test('abort() はすぐに終わる（画面を出るとき）', async () => {
   l.abort();
   assert.equal(await l.done, '');
 });
+
+test('読み上げ：声のじゅんび中に止めたら、前の問題は読まない・読むのは最後の1つだけ', async () => {
+  const spoken = []; let cancels = 0;
+  globalThis.window.speechSynthesis = { getVoices: () => [{ lang: 'ja-JP', name: 'Kyoko' }], cancel: () => { cancels++; }, speak: (u) => { spoken.push(u.text); setTimeout(() => u.onend && u.onend(), 1); } };
+  globalThis.speechSynthesis = globalThis.window.speechSynthesis;
+  globalThis.SpeechSynthesisUtterance = class { constructor(t) { this.text = t; } };
+  const v = await import('../js/voice.js?tts');
+  const a = v.speak('問題1'); const b = v.speak('問題2（もんだい）');
+  await Promise.all([a, b]);
+  assert.deepEqual(spoken, ['問題2']);
+  const c = v.speak('問題3'); v.stopSpeak(); await c;
+  assert.deepEqual(spoken, ['問題2']);
+  assert.ok(cancels >= 3);
+});

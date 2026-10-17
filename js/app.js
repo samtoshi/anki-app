@@ -6,7 +6,7 @@ import { check, redoPlan, applyRedo, autoGrade, isGradable, readingOf, isKanji, 
 import { HandPad, isTablet } from './handwriting.js';
 import { availableEngine, recognize, warmAI } from './recognize.js';
 import { computeGame, streakInfo, stickerBalance, monthCells, badgeList, ringSvg, confetti, stickerFor, XP, COMBO_BONUS, STUDY_MIN, STICKER_DAYS } from './game.js';
-import { speak, stopSpeak, canSpeak, canListen, listen } from './voice.js';
+import { speak, stopSpeak, canSpeak, canListen, listen, unlockSpeechOnFirstTap } from './voice.js';
 import { judgeOral, oralGrade } from './tutor.js';
 import { sceneFor, sceneHtml } from './art.js';
 import { writeChars, cellLayout, cellStates, MAX_CELLS } from './cells.js';
@@ -434,8 +434,14 @@ function renderCard() {
   }
   renderFace();
   renderBottom();
-  if (oral && store.settings.ttsAuto !== false) speak(card.q, { rate: ttsRate() });
+  // 社会・理科は、カードが出たら問題を読み上げる（1枚ずつ。前の読み上げは stopMedia で止めてある）
+  if (autoReadDeck(deck.id)) speak(questionText(card, s.cur), { rate: ttsRate() });
 }
+/** 自動で読み上げる教科：社会・理科だけ。「🎤 声で回答する」が ON で、読み上げを OFF にしていないとき */
+const AUTO_READ_DECKS = ['shakai', 'rika'];
+function autoReadDeck(deckId) { return AUTO_READ_DECKS.includes(deckId) && voiceOn() && store.settings.ttsAuto !== false; }
+/** 読み上げる問題文（答えは読まない。書くカードは wq） */
+function questionText(card, c) { return c && c.writeMode && card.wq ? card.wq : card.q; }
 
 function renderFace() {
   const s = session, c = s.cur;
@@ -460,7 +466,7 @@ function renderFace() {
   if (s.phase === 'result' || s.phase === 'redo' || s.phase === 'answer') body = resultHtml();
   $('#card').innerHTML = `<div class="card-tags">${deck.emoji} ${esc(deck.name)}${tagLine ? '・' + esc(tagLine) : ''} ${badge}${c.oral ? (voiceOn() ? ' <span class="oral-badge">🎤 声で答える</span>' : ' <span class="oral-badge">🗣️ 答えを言ってから「こたえを見る」</span>') : ''}</div>${q}${body}`;
   const sb = document.getElementById('speakBtn');
-  if (sb) sb.onclick = () => speak(c.writeMode ? card.wq : card.q, { rate: ttsRate() });
+  if (sb) sb.onclick = () => speak(questionText(card, c), { rate: ttsRate() });
 }
 
 function oralResultHtml() {
@@ -1153,7 +1159,7 @@ function viewSettings() {
       <h2 class="sec">🎯 目標・読み上げ</h2>
       <label>1日の目標（まい）
         <select id="goal">${[10, 15, 20, 30, 40].map((n) => opt(n, s.goal || 20, n + 'まい')).join('')}</select></label>
-      <label>問題を読み上げる（声で答えるカード）
+      <label>問題を読み上げる（社会・理科／「🎤 声で回答する」が ON のとき）
         <select id="tts">${opt('on', s.ttsAuto === false ? 'off' : 'on', 'ON')}${opt('off', s.ttsAuto === false ? 'off' : 'on', 'OFF（🔊を押したときだけ）')}</select></label>
       <label class="switch-row">🎤 声で回答する
         <span class="switch"><input type="checkbox" id="voiceAns" ${voiceOn() ? 'checked' : ''}><span class="slider"></span></span></label>
@@ -1302,6 +1308,7 @@ document.addEventListener('keydown', (e) => {
   window.addEventListener('online', () => cloud.sync());
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') cloud.sync(); });
   window.addEventListener('hashchange', () => { if (USER) route(); });
+  unlockSpeechOnFirstTap(); // iOS：さいしょのタップ（「はじめる」など）で読み上げを使えるようにする
   try {
     await loadFirebase();
     await afterLogin();
