@@ -5,7 +5,7 @@ import { selectReviewCards, isWeak } from './review.js';
 import { check, redoPlan, applyRedo, autoGrade, isGradable, readingOf, isKanji } from './grade.js';
 import { HandPad, isTablet } from './handwriting.js';
 import { availableEngine, recognize } from './recognize.js';
-import { CloudSync, loadFirebase, signInGoogle, sendEmailLink, completeEmailLink, signOut, loadContent, roleOf } from './cloud.js';
+import { CloudSync, loadFirebase, signInGoogle, signOut, loadContent, roleOf } from './cloud.js';
 import { appCheckSiteKey } from './firebase-config.js';
 
 const $app = document.getElementById('app');
@@ -559,21 +559,11 @@ function viewLogin(msg = '') {
     <section class="form login">
       <p class="small">家族専用のアプリです。登録されたアカウントでログインしてください。</p>
       <button class="btn big primary" id="gBtn">Google でログイン</button>
-      <details><summary>メールでログイン（パスワードなし）</summary>
-        <label>メールアドレス<input id="em" type="email" autocomplete="email" inputmode="email"></label>
-        <button class="btn soft" id="mBtn">ログイン用のリンクを送る</button>
-      </details>
       <p class="small" id="lmsg">${esc(msg)}</p>
     </section>`;
   $('#gBtn').onclick = async () => {
     $('#lmsg').textContent = 'ログインしています…';
     try { await signInGoogle(); await afterLogin(); } catch (e) { $('#lmsg').textContent = 'ログインできませんでした：' + errText(e); }
-  };
-  $('#mBtn').onclick = async () => {
-    const em = $('#em').value.trim();
-    if (!em) return;
-    try { await sendEmailLink(em); $('#lmsg').textContent = `${em} にリンクを送りました。この端末でメールを開いて、リンクを押してください。`; }
-    catch (e) { $('#lmsg').textContent = '送れませんでした：' + errText(e); }
   };
 }
 
@@ -742,9 +732,6 @@ document.addEventListener('keydown', (e) => {
   window.addEventListener('hashchange', () => { if (USER) route(); });
   try {
     await loadFirebase();
-    // メールのログイン用リンクから開いたとき
-    await completeEmailLink(async () => prompt('確認のため、ログインに使ったメールアドレスを入れてください'))
-      .catch((e) => { viewLogin('ログインできませんでした：' + errText(e)); throw e; });
     await afterLogin();
   } catch (e) {
     if (!$app.querySelector('.login')) $app.innerHTML = `<p class="done-msg">はじめられませんでした（${esc(errText(e))}）。電波のよいところでもう一度ひらいてね。</p>`;

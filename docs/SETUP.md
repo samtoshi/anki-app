@@ -7,9 +7,8 @@
 1. Firebase コンソール → **Security → Authentication** →「**Sign-in method**」（ログイン方法）タブ
 2. 「**Add new provider**」（新しいプロバイダを追加）→ **Google** → **Enable**（有効にする）→ サポートメールに自分のメールをえらぶ → Save
 3. 「Add new provider」→ **Email/Password**（メール/パスワード）→
-   - 上の「Email/Password」を **Enable**
-   - 下の「**Email link (passwordless sign-in)**」（メールリンク）も **Enable** → Save
-   - ※ メールリンクを使うには、上の Email/Password も有効にする必要があります（カード書きこみ専用アカウントもこれを使います）
+   - 上の「Email/Password」を **Enable** → Save（カード書きこみ専用アカウントだけが使います）
+   - 下の「Email link (passwordless sign-in)」は **オフのまま**（家族は Google ログインだけ）
 4. 「**Settings**」（設定）タブ →「**Authorized domains**」（承認済みドメイン）→「Add domain」→ **`samtoshi.github.io`** を追加
 5. 終わったら知らせてください（カード書きこみ専用アカウントを作って、カードをアップロードします）
 
@@ -35,5 +34,4 @@
 
 ## 注意
 
-- メールのリンクでログインするときは、**リンクを送ったのと同じ端末** で開くのがかんたんです（別の端末で開くと、メールアドレスを聞かれます）
-- 見覚えのない「メールアドレスを確認してください」というメールが Firebase から届いたら、リンクを押さずに削除してください
+- 家族の3人は Google アカウントでログインします（ルールで Google ログイン以外は使えないようにしています）

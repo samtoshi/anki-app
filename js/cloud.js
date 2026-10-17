@@ -1,4 +1,4 @@
-// Firebase（Google ログイン / メールリンク ＋ Firestore）
+// Firebase（Google ログイン ＋ Firestore）
 // - 使えるのは家族の3人だけ（Firestore のルールで決めています。アプリ側の表示はその結果に合わせるだけ）
 // - カードの中身は Firestore の content/... にあり、ログインした家族だけが読めます
 // - 記録は「まな」1人分（learners/main）。まな・父（タブレット）が書けて、ママは見るだけ
@@ -8,7 +8,6 @@ import { mergeStates, mergeReviews } from './merge.js';
 export const SDK_VERSION = '13.0.0';
 const CDN = `https://www.gstatic.com/firebasejs/${SDK_VERSION}/`;
 export const LID = 'main';
-const EMAIL_KEY = 'anki-cards:emailForSignIn';
 const CONTENT_KEY = 'anki-cards:content';
 
 // テスト用：localhost のときだけ、エミュレーターにつなぐ設定を localStorage から読む
@@ -63,28 +62,6 @@ export async function signInGoogle() {
     if (/popup-blocked|operation-not-supported/.test(e.code || '')) return fb.authM.signInWithRedirect(fb.auth, p);
     throw e;
   }
-}
-
-/** メールにログイン用のリンクを送る（パスワードなし） */
-export async function sendEmailLink(email) {
-  const fb = await loadFirebase();
-  const url = location.origin + location.pathname;
-  await fb.authM.sendSignInLinkToEmail(fb.auth, email, { url, handleCodeInApp: true });
-  localStorage.setItem(EMAIL_KEY, email);
-}
-
-/** メールのリンクから開いたときに、ログインを完了する。askEmail(): 別の端末で開いたときにメールを聞く */
-export async function completeEmailLink(askEmail) {
-  const fb = await loadFirebase();
-  const href = location.href;
-  if (!fb.authM.isSignInWithEmailLink(fb.auth, href)) return null;
-  let email = localStorage.getItem(EMAIL_KEY);
-  if (!email) email = await askEmail();
-  if (!email) return null;
-  const r = await fb.authM.signInWithEmailLink(fb.auth, email.trim(), href);
-  localStorage.removeItem(EMAIL_KEY);
-  history.replaceState(null, '', location.pathname + (location.hash || '#/'));
-  return r;
 }
 
 export async function signOut() {
