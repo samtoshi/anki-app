@@ -32,8 +32,9 @@ async function aiInstance() {
   return aiP;
 }
 const models = new Map();
-// 読み取りは「考える量 64 トークンまで」・画像は長い辺 384px（本番で計測 2026-10-18：
-//   640px・128 より、まちがった字を正しい字に直してしまうことがなく（35/35）、速さは同じくらい。
+// 読み取りは「考える量 128 トークンまで」・画像は長い辺 384px（本番で計測 2026-10-18：
+//   640px のときは、まちがった字を正しい字に直してしまうことがあった（18/28 しかそのまま読めない）。384px なら 21/21。
+//   考える量 64 / LOW も速さはほぼ同じで、64 は1回だけ直してしまった（62/63）ので 128 のまま。
 //   画像の解像度を下げる設定（mediaResolution LOW/MEDIUM）は速く安いが、まちがった字を直してしまうので使わない。
 //   1マスずつ切って送るやり方は、遅く・トークンが多く・直してしまうこともあったので使わない）
 async function modelFor(name, kind = 'read') {
@@ -48,7 +49,7 @@ async function modelFor(name, kind = 'read') {
         responseSchema: schema,
         maxOutputTokens: 1500, // 考える分（thinking）もふくむ。少ないと答えが途中で切れる
         temperature: kind === 'read' ? 0 : kind === 'msg' ? 0.9 : 0.4,
-        thinkingConfig: { thinkingBudget: kind === 'read' ? 64 : 256 },
+        thinkingConfig: { thinkingBudget: kind === 'read' ? 128 : 256 },
       },
     }));
   }
