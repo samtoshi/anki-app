@@ -12,7 +12,7 @@ export const firebaseConfig = {
 
 // 手書きの読み取り（Firebase AI Logic / Gemini Developer API・無料枠）で使うモデル。
 // 上から順に使い、1日の上限に達した・使えないモデルは、その日は次のモデルにかえます。
-export const aiModels = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+export const aiModels = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
 
 // App Check（reCAPTCHA Enterprise / Fraud Defense に登録したサイトキー）。公開されても大丈夫な値です（このサイトのドメインでしか使えません）。
 // AI読み取り（AI Logic）は App Check のトークンがないと使えません。失敗したら自分で答え合わせに戻ります。
