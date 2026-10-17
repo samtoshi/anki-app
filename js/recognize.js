@@ -42,7 +42,6 @@ async function modelFor(name) {
         responseSchema: ai.Schema.object({ properties: { text: ai.Schema.string() } }),
         maxOutputTokens: 400, // 考える分のトークンもふくむので少し余裕をもたせる
         temperature: 0,
-        thinkingConfig: { thinkingLevel: 'LOW' },
       },
     }));
   }
@@ -59,7 +58,7 @@ function skip(name) { const m = new Set(skipped()); m.add(name); localStorage.se
 export function aiErrorKind(e) {
   const t = `${e?.code || ''} ${e?.message || ''} ${e?.customErrorData?.status || ''}`;
   if (/\b429\b|RESOURCE_EXHAUSTED|quota|rate.?limit/i.test(t)) return 'quota';
-  if (/\b404\b|NOT_FOUND|not found|not supported|\b400\b.*model|thinking/i.test(t)) return 'model';
+  if (/\b404\b|NOT_FOUND|not found|not supported/i.test(t)) return 'model';
   if (/App ?Check|appCheck|\b401\b/i.test(t)) return 'appcheck';
   if (!navigator.onLine || /Failed to fetch|NetworkError|network/i.test(t)) return 'offline';
   return 'other';
