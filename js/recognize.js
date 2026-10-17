@@ -40,7 +40,7 @@ async function modelFor(name) {
       generationConfig: {
         responseMimeType: 'application/json',
         responseSchema: ai.Schema.object({ properties: { text: ai.Schema.string() } }),
-        maxOutputTokens: 300,
+        maxOutputTokens: 120,
         temperature: 0,
         thinkingConfig: { thinkingLevel: 'LOW' },
       },
@@ -82,7 +82,7 @@ function parseText(t) {
 }
 
 async function geminiRead(pad, ctx) {
-  const img = pad.toImage({ max: 900 });
+  const img = pad.toImage({ max: 640 }); // 小さめの画像で送る（料金・通信量を少なく）
   if (!img) return '';
   const list = aiModels.filter((m) => !skipped().includes(m));
   if (!list.length) throw Object.assign(new Error('今日のAI読み取りの上限に達しました'), { code: 'ai-quota' });
