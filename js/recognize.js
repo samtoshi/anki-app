@@ -40,7 +40,7 @@ async function modelFor(name) {
       generationConfig: {
         responseMimeType: 'application/json',
         responseSchema: ai.Schema.object({ properties: { text: ai.Schema.string() } }),
-        maxOutputTokens: 120,
+        maxOutputTokens: 400, // 考える分のトークンもふくむので少し余裕をもたせる
         temperature: 0,
         thinkingConfig: { thinkingLevel: 'LOW' },
       },
