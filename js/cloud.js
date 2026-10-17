@@ -125,6 +125,8 @@ export class CloudSync {
       state: fs.doc(db, 'learners', LID, 'data', 'state'),
       reviews: fs.collection(db, 'learners', LID, 'reviews'),
       review: (id) => fs.doc(db, 'learners', LID, 'reviews', id),
+      rewards: fs.doc(db, 'learners', LID, 'data', 'rewards'),
+      spend: fs.collection(db, 'learners', LID, 'spend'),
     };
   }
 
@@ -166,6 +168,8 @@ export class CloudSync {
         // 1) 引っぱる
         const snap = await fs.getDoc(r.state);
         const remote = snap.exists() ? snap.data() : {};
+        // 今日のひとこと：同じ日なら先に作った方にそろえる（どの端末でも同じものを出す）
+        if (remote.dmsg && remote.dmsg.day && (!data.dmsg || remote.dmsg.day > data.dmsg.day || (remote.dmsg.day === data.dmsg.day && (remote.dmsg.at || 0) < (data.dmsg.at || 0)))) { data.dmsg = remote.dmsg; this.onDmsg && this.onDmsg(); }
         const m = mergeStates(data.states, remote.states || {});
         data.states = m.states;
         const since = Math.max(0, (link.pullT || 0) - 3600e3);
@@ -200,6 +204,8 @@ export class CloudSync {
           daily: d.daily,
           lastGrades: d.lastGrades,
           charMiss: d.charMiss,
+          ...(this.gameSummary ? { game: this.gameSummary() } : {}),
+          ...(data.dmsg ? { dmsg: data.dmsg } : {}),
           nickname: store.settings.nickname || '',
           updatedAt: fs.serverTimestamp(),
           clientAt: Date.now(),
@@ -222,8 +228,31 @@ export class CloudSync {
     const fb = await loadFirebase();
     return fb.fs.onSnapshot(this.refs(fb).state, (snap) => {
       const d = snap.exists() ? snap.data() : {};
-      cb({ states: d.states || {}, daily: d.daily || {}, lastGrades: d.lastGrades || {}, charMiss: d.charMiss || {}, settings: { nickname: d.nickname || '' } },
+      cb({ states: d.states || {}, daily: d.daily || {}, lastGrades: d.lastGrades || {}, charMiss: d.charMiss || {}, game: d.game || null, dmsg: d.dmsg || null, settings: { nickname: d.nickname || '' } },
         { at: d.clientAt || null, exists: snap.exists() });
     }, (e) => onErr && onErr(e));
+  }
+
+  // ---------- ごほうび（シール） ----------
+  /** ごほうびの一覧と、シールを使う申しこみを見つづける。cb({items, spends}) */
+  async watchRewards(cb, onErr) {
+    const fb = await loadFirebase();
+    const r = this.refs(fb);
+    let items = {}, spends = [];
+    const u1 = fb.fs.onSnapshot(r.rewards, (snap) => { items = (snap.exists() && snap.data().items) || {}; cb({ items, spends }); }, (e) => onErr && onErr(e));
+    const u2 = fb.fs.onSnapshot(r.spend, (q) => { spends = q.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => b.t - a.t); cb({ items, spends }); }, (e) => onErr && onErr(e));
+    return () => { u1(); u2(); };
+  }
+  async saveRewards(items) {
+    const fb = await loadFirebase();
+    await fb.fs.setDoc(this.refs(fb).rewards, { items, updatedAt: Date.now() });
+  }
+  async requestSpend(id, item) {
+    const fb = await loadFirebase();
+    await fb.fs.addDoc(this.refs(fb).spend, { r: id, name: item.name, cost: item.cost, t: Date.now(), st: 'req' });
+  }
+  async decideSpend(sid, ok) {
+    const fb = await loadFirebase();
+    await fb.fs.updateDoc(fb.fs.doc(fb.db, 'learners', LID, 'spend', sid), { st: ok ? 'ok' : 'no', dt: Date.now() });
   }
 }

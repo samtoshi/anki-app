@@ -32,21 +32,56 @@ async function aiInstance() {
   return aiP;
 }
 const models = new Map();
-async function modelFor(name) {
-  if (!models.has(name)) {
+// 考える量は「128トークンまで」（本番で計測：LOW より速く、時間のばらつきも小さい。まちがった字も直さない）
+async function modelFor(name, kind = 'read') {
+  const key = name + ':' + kind;
+  if (!models.has(key)) {
     const { ai, inst } = await aiInstance();
-    models.set(name, ai.getGenerativeModel(inst, {
+    const schema = kind === 'read' ? ai.Schema.object({ properties: { text: ai.Schema.string() } }) : SCHEMAS[kind](ai);
+    models.set(key, ai.getGenerativeModel(inst, {
       model: name,
       generationConfig: {
         responseMimeType: 'application/json',
-        responseSchema: ai.Schema.object({ properties: { text: ai.Schema.string() } }),
+        responseSchema: schema,
         maxOutputTokens: 1500, // 考える分（thinking）もふくむ。少ないと答えが途中で切れる
-        thinkingConfig: { thinkingLevel: 'LOW' }, // 本番で確認ずみ（MINIMAL は 3.8-flash で使えない）
-        temperature: 0,
+        temperature: kind === 'read' ? 0 : kind === 'msg' ? 0.9 : 0.4,
+        thinkingConfig: { thinkingBudget: kind === 'read' ? 128 : 256 },
       },
     }));
   }
-  return models.get(name);
+  return models.get(key);
+}
+const SCHEMAS = {};
+/** ほかの機能（声の答えの判定など）からも使う：JSON で答えてもらう */
+export function defineSchema(kind, fn) { SCHEMAS[kind] = fn; }
+export async function aiJSON(kind, parts, { timeout = 20000 } = {}) {
+  const list = aiModels.filter((m) => !skipped().includes(m));
+  let last = null;
+  for (const name of list) {
+    try {
+      const model = await modelFor(name, kind);
+      const res = await withTimeout(model.generateContent(parts), timeout);
+      const fin = res.response.candidates?.[0]?.finishReason;
+      if (fin && fin !== 'STOP') throw Object.assign(new Error('答えが途中で切れました'), { code: 'ai-truncated' });
+      return JSON.parse(res.response.text());
+    } catch (e) {
+      last = e;
+      const k = aiErrorKind(e);
+      if (e.code === 'ai-truncated' || e instanceof SyntaxError) continue;
+      if (k === 'quota' || k === 'model') { skip(name); continue; }
+      throw Object.assign(e, { code: k === 'billing' ? 'ai-quota' : k === 'appcheck' ? 'ai-appcheck' : k === 'offline' ? 'ai-offline' : (e.code || 'ai-error') });
+    }
+  }
+  throw Object.assign(new Error('AIが使えませんでした'), { code: last?.code === 'ai-truncated' ? 'ai-truncated' : 'ai-quota', cause: last });
+}
+
+/** 勉強をはじめるときに、App Check のトークンと AI の準備を先にしておく（1回目を速くする） */
+export async function warmAI() {
+  try {
+    const fb = await loadFirebase();
+    if (fb.appCheck) { const ac = await import(`https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-app-check.js`); await ac.getToken(fb.appCheck); }
+    await modelFor(aiModels[0]);
+  } catch (e) { console.warn('warmAI', e?.message); }
 }
 
 // その日に上限に達した・使えなかったモデル（この端末だけに覚える）

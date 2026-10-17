@@ -86,7 +86,7 @@ export class HandPad {
       const y0 = this.dir === 'v' ? (h - total) / 2 : (h - size) / 2;
       return { size, x0, y0, cols: this.dir === 'v' ? 1 : n, rows: this.dir === 'v' ? n : 1 };
     }
-    const size = Math.max(64, Math.min(120, Math.min(w, h) / 3));
+    const size = Math.max(72, Math.min(200, Math.min(w, h) / 2.2)); // 大きく書けるように
     const cols = Math.floor(w / size), rows = Math.floor(h / size);
     return { size, x0: (w - cols * size) / 2, y0: (h - rows * size) / 2, cols, rows };
   }
@@ -98,7 +98,7 @@ export class HandPad {
     if (!(this.masu || this.cells)) {
       // 横書き・縦書きのうすい線だけ
       g.strokeStyle = '#f6d7e3'; g.lineWidth = 1; g.setLineDash([6, 6]);
-      const step = Math.max(70, Math.min(110, Math.min(this.w, this.h) / 3));
+      const step = Math.max(80, Math.min(200, Math.min(this.w, this.h) / 2.2));
       g.beginPath();
       if (this.dir === 'v') for (let x = this.w - step; x > 0; x -= step) { g.moveTo(x, 8); g.lineTo(x, this.h - 8); }
       else for (let y = step; y < this.h; y += step) { g.moveTo(8, y); g.lineTo(this.w - 8, y); }
