@@ -172,6 +172,7 @@ test('AI読み取り：エラーの種類と、送る文に答えが入らない
   globalThis.navigator ??= { onLine: true };
   const { aiErrorKind, PROMPT } = await import('../js/recognize.js');
   assert.equal(aiErrorKind({ message: '[429 ] Resource has been exhausted (e.g. check quota).' }), 'quota');
+  assert.equal(aiErrorKind({ message: '[429 ] Your prepayment credits are depleted.' }), 'billing');
   assert.equal(aiErrorKind({ message: '[404 ] models/gemini-x is not found' }), 'model');
   assert.equal(aiErrorKind({ message: '[401 ] Firebase App Check token is invalid.' }), 'appcheck');
   const p = PROMPT('h', { cells: 4, len: 4, kanji: true });

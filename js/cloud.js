@@ -31,7 +31,7 @@ export function loadFirebase() {
       // App Check はほかのサービスより先に。失敗してもログインと記録はそのまま使える
       try {
         const ac = await import(CDN + 'firebase-app-check.js');
-        appCheck = ac.initializeAppCheck(app, { provider: new ac.ReCaptchaV3Provider(appCheckSiteKey), isTokenAutoRefreshEnabled: true });
+        appCheck = ac.initializeAppCheck(app, { provider: new ac.ReCaptchaEnterpriseProvider(appCheckSiteKey), isTokenAutoRefreshEnabled: true });
       } catch (e) { console.warn('App Check', e); }
     }
     const authM = await import(CDN + 'firebase-auth.js');

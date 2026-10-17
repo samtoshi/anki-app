@@ -2,7 +2,7 @@
 // 1) Firebase AI Logic（Gemini Developer API・無料枠）に「書いた字の画像」だけを送って書き起こしてもらう
 //    - 送るのは画像と、書く向き・だいたいの字数・漢字かどうか だけ（名前・メール・正解の文字は送らない）
 //    - 画像は読み取りのためだけに送り、Firestore などには保存しない
-//    - App Check（reCAPTCHA v3）のトークンがないと使えない
+//    - App Check（reCAPTCHA Enterprise）のトークンがないと使えない
 // 2) Gemini が使えない（上限・電波なし・エラー）とき、Chrome の端末内の手書き認識があればそれを使う
 // 3) どちらも使えなければ例外（自分で答え合わせにもどる）
 import { aiModels, appCheckSiteKey } from './firebase-config.js';
@@ -57,6 +57,7 @@ function skip(name) { const m = new Set(skipped()); m.add(name); localStorage.se
 /** エラーの種類：quota（今日の上限）・model（そのモデルが使えない）・appcheck・offline・other */
 export function aiErrorKind(e) {
   const t = `${e?.code || ''} ${e?.message || ''} ${e?.customErrorData?.status || ''}`;
+  if (/prepayment|credits are depleted|billing/i.test(t)) return 'billing'; // 支払い（前払いクレジット）の問題：どのモデルも同じ
   if (/\b429\b|RESOURCE_EXHAUSTED|quota|rate.?limit/i.test(t)) return 'quota';
   if (/\b404\b|NOT_FOUND|not found|not supported/i.test(t)) return 'model';
   if (/App ?Check|appCheck|\b401\b/i.test(t)) return 'appcheck';
@@ -96,6 +97,7 @@ async function geminiRead(pad, ctx) {
       const k = aiErrorKind(e);
       console.warn('AI読み取り', name, k, e?.message);
       if (k === 'quota' || k === 'model') { skip(name); continue; }
+      if (k === 'billing') throw Object.assign(e, { code: 'ai-quota' });
       throw Object.assign(e, { code: k === 'appcheck' ? 'ai-appcheck' : k === 'offline' ? 'ai-offline' : (e.code || 'ai-error') });
     }
   }

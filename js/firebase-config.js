@@ -14,7 +14,7 @@ export const firebaseConfig = {
 // 上から順に使い、1日の上限に達した・使えないモデルは、その日は次のモデルにかえます。
 export const aiModels = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
 
-// App Check（reCAPTCHA v3）のサイトキー。公開されても大丈夫な値です（このサイトのドメインでしか使えません）。
+// App Check（reCAPTCHA Enterprise / Fraud Defense に登録したサイトキー）。公開されても大丈夫な値です（このサイトのドメインでしか使えません）。
 // AI読み取り（AI Logic）は App Check のトークンがないと使えません。失敗したら自分で答え合わせに戻ります。
 export const appCheckSiteKey = '6LdswPMtAAAAAAfQN0WkM5gqpm3qQZidO_Se0sBT';
 
