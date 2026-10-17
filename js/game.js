@@ -1,4 +1,4 @@
-// ごほうび（XP・レベル・れんぞく日数・今日の目標・スタンプ・バッジ）
+// がんばりの記録と演出（XP・レベル・れんぞく日数・今日の目標・スタンプ・バッジ）
 // すべて「採点の記録（reviews）」から計算するので、どの端末でも同じになる。
 // 保護者の画面用に、まとめ（summary）を記録のドキュメントに入れて送る。
 import { dayIndex } from './srs.js';
@@ -45,15 +45,17 @@ export function streakInfo(daily = {}, today = dayIndex()) {
   const studied = new Set(Object.entries(daily).filter(([, l]) => (l && l.r) >= STUDY_MIN).map(([k]) => +k).filter((d) => !isNaN(d)));
   const days = [...studied].sort((a, b) => a - b);
   let run = 0, best = 0, prev = null, earned = 0;
+  const earnedDays = []; // シールをもらった日（れんぞくが7日・14日…になった日）
   const flush = () => { earned += Math.floor(run / STICKER_DAYS); };
   for (const d of days) {
     if (prev != null && d === prev + 1) run++; else { flush(); run = 1; }
+    if (run % STICKER_DAYS === 0) earnedDays.push(d);
     prev = d; best = Math.max(best, run);
   }
   flush();
   let streak = 0;
   for (let d = studied.has(today) ? today : today - 1; studied.has(d); d--) streak++;
-  return { studied, streak, best, earned, progress: streak % STICKER_DAYS, todayDone: studied.has(today) };
+  return { studied, streak, best, earned, earnedDays, progress: streak % STICKER_DAYS, todayDone: studied.has(today) };
 }
 
 /** シールの残り（もらった数 − 使った・申しこみ中の数） */
@@ -137,7 +139,7 @@ export function badgeList(game) {
   return list;
 }
 
-/** ごほうびの見た目（ホーム・進み具合・保護者の画面で共通） */
+/** がんばりの見た目（ホーム・進み具合・保護者の画面で共通） */
 export function ringSvg(n, goal, size = 92) {
   const r = size / 2 - 8, c = 2 * Math.PI * r, p = Math.min(1, n / Math.max(1, goal));
   return `<svg class="ring" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" aria-label="今日の目標 ${n}/${goal}">

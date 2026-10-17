@@ -738,7 +738,7 @@ function doGrade(g) {
   renderCard();
 }
 
-/** ごほうびの演出：XP・コンボ・目標たっせい・レベルアップ・バッジ */
+/** がんばりの演出：XP・コンボ・目標たっせい・レベルアップ・バッジ */
 function celebrate(g) {
   const s = session;
   const gain = (XP[g] || 0) + (s.combo >= 5 ? COMBO_BONUS : 0);
@@ -966,7 +966,7 @@ async function viewLive() {
   } catch (e) { $('#live').innerHTML = `<p class="done-msg">つながりませんでした（${esc(errText(e))}）</p>`; }
 }
 
-// ---------- ごほうび（カレンダー・シール・バッジ） ----------
+// ---------- 達成シール（カレンダー・シール・シール交換・バッジ） ----------
 let LIVE = null;      // 保護者の画面：クラウドから読んだ記録
 let ADULT_OPEN = false;
 let CAL_OFF = 0;      // カレンダー：今月から何か月前
@@ -991,54 +991,69 @@ function stickerHtml(daily) {
   const dots = Array.from({ length: STICKER_DAYS }, (_, i) => `<span class="sd ${i < si.progress ? 'on' : ''}">${i < si.progress ? '🌸' : ''}</span>`).join('');
   return `<section class="sticker-box">
     <div class="sb-top"><div class="sb-big">🎁<b>${bal.balance}</b><small>まい</small></div>
-      <div class="sb-txt">シールちょきん<br><small>これまで ${bal.earned}まい もらった・${bal.used}まい つかった</small></div></div>
+      <div class="sb-txt">シール貯金<br><small>これまで ${bal.earned}まい もらった・${bal.used}まい つかった</small></div></div>
     <div class="sb-next">つぎのシールまで <b>${si.progress}/${STICKER_DAYS}日</b>${si.todayDone ? '' : '<small>（今日もあと少し！）</small>'}</div>
-    <div class="sdots">${dots}</div></section>`;
+    <div class="sdots">${dots}</div>
+    <h3 class="sec small-h">📜 シール貯金の記録</h3>${stickerHistHtml([
+      ...si.earnedDays.map((d) => ({ t: dayStart(d), text: 'シールを1枚もらう', sub: `${STICKER_DAYS}日れんぞく達成`, kind: 'get' })),
+      ...(REWARDS.spends || []).map(spendRow)])}</section>`;
+}
+const dayStart = (d) => new Date(dayToISO(d) + 'T12:00:00').getTime();
+const SPEND_ST = { req: '⏳ OK待ち', ok: '⭕ OK', no: '✖ こんどね' };
+const spendRow = (x) => ({ t: x.t, text: `シールを${x.cost}枚使う`, sub: SPEND_ST[x.st] || x.st, kind: 'use ' + x.st, id: x.id, st: x.st });
+/** 記録の行：左に日づけ、右に「シールを〇枚もらう／使う」（シール貯金とシールを使うで同じ形） */
+function stickerHistHtml(rows, { actions = false } = {}) {
+  rows = rows.slice().sort((a, b) => b.t - a.t).slice(0, 40);
+  if (!rows.length) return '<p class="small">まだありません</p>';
+  return `<div class="shist">${rows.map((r) => { const d = new Date(r.t); return `<div class="srow ${r.kind}"><span class="sr-d">${d.getMonth() + 1}/${d.getDate()}</span><span class="sr-t">${esc(r.text)}${r.sub ? ` <small>${esc(r.sub)}</small>` : ''}</span>${actions && isAdult() && r.st === 'req' ? `<span class="sr-a"><button class="btn primary mini" data-ok="${r.id}">OK</button><button class="btn soft mini" data-no="${r.id}">こんどね</button></span>` : ''}</div>`; }).join('')}</div>`;
+}
+// シールを使う：シール交換の一覧は「シール〇枚」だけ（名前なし）。ルールに合わせて items に n1〜n10 を入れておく
+const SPEND_MAX = 10;
+const genericItems = () => Object.fromEntries(Array.from({ length: SPEND_MAX }, (_, i) => [`n${i + 1}`, { name: `シール${i + 1}枚`, cost: i + 1, e: '🎁' }]));
+let ENSURING = false;
+async function ensureGenericItems() {
+  if (ENSURING || !isAdult() || !REWARDS.ready || REWARDS.err) return;
+  const items = REWARDS.items || {}, want = genericItems();
+  const same = Object.keys(items).length === SPEND_MAX && Object.entries(want).every(([k, v]) => items[k] && items[k].name === v.name && items[k].cost === v.cost);
+  if (same) return;
+  ENSURING = true;
+  try { await cloud.saveRewards(want); } catch (e) { console.warn('シール交換の準備', e); } finally { ENSURING = false; }
 }
 function rewardsHtml(daily) {
   daily = daily || (isParentRole() ? LIVE?.daily : store.derived.daily) || {};
   const si = streakInfo(daily, dayIndex());
   const bal = stickerBalance(si.earned, REWARDS.spends || []);
-  if (REWARDS.err) return `<p class="small">ごほうびの設定はまだ使えません（${esc(errText(REWARDS.err))}）。Firestore のルールを新しくすると使えるようになります。</p>`;
+  if (REWARDS.err) return `<p class="small">シール交換の設定はまだ使えません（${esc(errText(REWARDS.err))}）。Firestore のルールを新しくすると使えるようになります。</p>`;
   if (!REWARDS.ready) return '<p class="loading">よみこみ中…</p>';
-  const items = Object.entries(REWARDS.items || {}).sort((a, b) => a[1].cost - b[1].cost);
+  ensureGenericItems();
   const canUse = !isParentRole() && !confirmMode();
-  const list = items.length ? items.map(([id, it]) => `<div class="rw">
-      <span class="rw-e">${esc(it.e || '🎀')}</span><span class="rw-n">${esc(it.name)}</span><span class="rw-c">🎁×${it.cost}</span>
-      ${canUse ? `<button class="btn ${bal.balance >= it.cost ? 'primary' : 'soft'} mini" data-use="${esc(id)}" ${bal.balance >= it.cost ? '' : 'disabled'}>つかう</button>` : ''}
-      ${isAdult() ? `<button class="btn soft mini" data-del="${esc(id)}">けす</button>` : ''}</div>`).join('')
-    : '<p class="small">まだごほうびがありません。パパ・ママが決めてくれるよ。</p>';
-  const st = { req: '⏳ おねがい中', ok: '⭕ OK', no: '✖ こんどね' };
-  const hist = (REWARDS.spends || []).slice(0, 30).map((x) => `<div class="hist"><span>${new Date(x.t).getMonth() + 1}/${new Date(x.t).getDate()}</span><span>${esc(x.name)}（🎁×${x.cost}）</span><span class="hs ${x.st}">${st[x.st] || x.st}</span>
-      ${isAdult() && x.st === 'req' ? `<button class="btn primary mini" data-ok="${x.id}">OK</button><button class="btn soft mini" data-no="${x.id}">こんどね</button>` : ''}</div>`).join('');
-  return `<h2 class="sec">🎀 ごほうび</h2><div class="rws">${list}</div>
-    ${isAdult() ? `<details class="adult" id="adultBox" ${isParentRole() || ADULT_OPEN ? 'open' : ''}><summary>👪 おとな用：ごほうびを決める</summary>
-      <div class="rw-add"><input id="rwE" maxlength="4" placeholder="🍪" value="🍪"><input id="rwN" maxlength="30" placeholder="例：おかし"><select id="rwC">${[1, 2, 3, 4, 5, 6, 8, 10, 15, 20].map((n) => `<option value="${n}" ${n === 3 ? 'selected' : ''}>シール${n}まい</option>`).join('')}</select><button class="btn primary mini" id="rwAdd">ついか</button></div>
-      <p class="small">申しこみに「OK」すると、そのごほうびのシールが使われます。「こんどね」にするとシールはもどります。</p></details>` : ''}
-    <h2 class="sec">📜 つかった記録</h2>${hist || '<p class="small">まだありません</p>'}`;
+  const ready = !!(REWARDS.items && REWARDS.items.n1);
+  const max = Math.min(SPEND_MAX, bal.balance);
+  const n = Math.max(1, Math.min(max || 1, USE_N));
+  const use = !canUse ? ''
+    : !ready ? '<p class="small">パパ・ママの画面（または父のアカウント）でこの画面を一度ひらくと、シールを使えるようになるよ。</p>'
+    : max < 1 ? '<p class="small">シールがたまったら使えるよ。7日れんぞくで1枚もらえるよ！</p>'
+    : `<div class="use-row"><select id="useN">${Array.from({ length: max }, (_, i) => `<option value="${i + 1}" ${i + 1 === n ? 'selected' : ''}>${i + 1}枚</option>`).join('')}</select><button class="btn primary" id="useBtn">シールを${n}枚使う</button></div>`;
+  return `<h2 class="sec">${isParentRole() ? '🎀 シール交換' : '🎀 シールを使う'}</h2>
+    <div class="use-bal">いま <b>シール${bal.balance}枚</b></div>${use}
+    ${isAdult() ? `<details class="adult" id="adultBox" ${isParentRole() || ADULT_OPEN ? 'open' : ''}><summary>👪 おとな用：シール交換</summary>
+      <p class="small">「シールを〇枚使う」のおねがいに「OK」すると、そのシールが使われます。「こんどね」にするとシールはもどります。下の記録から OK／こんどね を押してね。</p></details>` : ''}
+    <h3 class="sec small-h">📜 使った記録</h3>${stickerHistHtml((REWARDS.spends || []).map(spendRow), { actions: true })}`;
 }
+let USE_N = 1;
 function bindRewards() {
-  $app.querySelectorAll('[data-use]').forEach((b) => (b.onclick = async () => {
-    const it = REWARDS.items[b.dataset.use];
-    if (!it || !confirm(`シール ${it.cost}まいで「${it.name}」をおねがいする？`)) return;
-    try { await cloud.requestSpend(b.dataset.use, it); confetti(1); toast('おねがいしたよ！パパ・ママのOKを待ってね'); } catch (e) { toast('おねがいできませんでした：' + errText(e)); }
-  }));
-  $app.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => {
-    if (!confirm('このごほうびを消しますか？')) return;
-    const items = { ...REWARDS.items }; delete items[b.dataset.del];
-    try { await cloud.saveRewards(items); } catch (e) { toast('保存できませんでした：' + errText(e)); }
-  }));
+  const sel = document.getElementById('useN'), btn = document.getElementById('useBtn');
+  if (sel) sel.onchange = () => { USE_N = +sel.value; btn.textContent = `シールを${USE_N}枚使う`; };
+  if (btn) btn.onclick = async () => {
+    const k = +(sel ? sel.value : 1); const id = `n${k}`; const it = REWARDS.items && REWARDS.items[id];
+    if (!it) return toast('まだ使えないよ。パパ・ママに聞いてね');
+    if (!confirm(`シールを${k}枚使う？（パパ・ママのOKを待つよ）`)) return;
+    try { await cloud.requestSpend(id, it); confetti(1); toast('おねがいしたよ！パパ・ママのOKを待ってね'); } catch (e) { toast('おねがいできませんでした：' + errText(e)); }
+  };
   $app.querySelectorAll('[data-ok],[data-no]').forEach((b) => (b.onclick = async () => {
     try { await cloud.decideSpend(b.dataset.ok || b.dataset.no, !!b.dataset.ok); toast(b.dataset.ok ? 'OKしました' : '「こんどね」にしました'); } catch (e) { toast('できませんでした：' + errText(e)); }
   }));
   const ab = document.getElementById('adultBox'); if (ab) ab.ontoggle = () => { ADULT_OPEN = ab.open; };
-  const add = document.getElementById('rwAdd');
-  if (add) add.onclick = async () => {
-    const name = $('#rwN').value.trim(); if (!name) return toast('ごほうびの名前を入れてね');
-    const id = 'r' + Date.now().toString(36);
-    const items = { ...REWARDS.items, [id]: { name, cost: +$('#rwC').value, e: $('#rwE').value.trim() || '🎀' } };
-    try { await cloud.saveRewards(items); toast('ついかしました'); } catch (e) { toast('保存できませんでした：' + errText(e)); }
-  };
 }
 function badgesHtml(g) {
   if (!g) return '';
@@ -1049,7 +1064,7 @@ function viewRewards() {
   const render = () => {
     const daily = isParentRole() ? (LIVE?.daily || {}) : store.derived.daily;
     const g = isParentRole() ? LIVE?.game : game();
-    $app.innerHTML = `${confirmBanner()}<header class="bar-top"><h1>🎁 ごほうび</h1></header>
+    $app.innerHTML = `${confirmBanner()}<header class="bar-top"><h1>🎁 達成シール</h1></header>
       ${g ? gameHeaderHtml(g, daily) : ''}
       <div class="prog-grid"><div>
       ${stickerHtml(daily)}
@@ -1227,8 +1242,8 @@ function renderCloudBox() {
 
 function nav(active) {
   const item = (k, href, icon, label) => `<a href="${href}" class="${active === k ? 'on' : ''}"><span>${icon}</span>${label}</a>`;
-  if (isParentRole()) return `<nav class="tabbar">${item('progress', '#/', '📊', '進み具合')}${item('rewards', '#/rewards', '🎁', 'ごほうび')}${item('cards', '#/cards', '🔍', 'カード')}${item('settings', '#/settings', '⚙️', 'せってい')}</nav>`;
-  return `<nav class="tabbar">${item('home', '#/', '🏠', 'ホーム')}${item('review', '#/review', '📝', '見直し')}${item('rewards', '#/rewards', '🎁', 'ごほうび')}${item('progress', '#/progress', '📊', '進み具合')}${item('settings', '#/settings', '⚙️', 'せってい')}</nav>`;
+  if (isParentRole()) return `<nav class="tabbar">${item('progress', '#/', '📊', '進み具合')}${item('rewards', '#/rewards', '🎁', '達成シール')}${item('cards', '#/cards', '🔍', 'カード')}${item('settings', '#/settings', '⚙️', 'せってい')}</nav>`;
+  return `<nav class="tabbar">${item('home', '#/', '🏠', 'ホーム')}${item('review', '#/review', '📝', '見直し')}${item('rewards', '#/rewards', '🎁', '達成シール')}${item('progress', '#/progress', '📊', '進み具合')}${item('settings', '#/settings', '⚙️', 'せってい')}</nav>`;
 }
 
 // ---------- ルーター ----------

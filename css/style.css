@@ -270,7 +270,7 @@ small { font-size: .78em; color: var(--mute); font-weight: normal; }
 .confirm-banner { background: #e8f4ff; border: 2px dashed #7cc8ff; color: #2d6ea3; border-radius: 16px; padding: 8px 12px; margin: 10px 0; font-weight: bold; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .confirm-banner.slim { margin: 0 0 4px; padding: 3px 10px; font-size: 13px; }
 
-/* ごほうび */
+/* 達成シール・シール交換 */
 .combo { min-width: 54px; text-align: right; font-weight: 900; color: #ff7a3d; font-size: 18px; }
 .combo small { font-size: 10px; color: #ff7a3d; }
 .xp-float { position: fixed; left: 50%; top: 38%; transform: translateX(-50%); font-weight: 900; font-size: 26px; color: #ffb000; text-shadow: 0 2px 0 #fff; z-index: 60; pointer-events: none; animation: xpup 1.1s ease-out forwards; }
@@ -362,3 +362,21 @@ small { font-size: .78em; color: var(--mute); font-weight: normal; }
 .switch input:checked + .slider::before { transform: translateX(24px); }
 .agrid.pending .cell { background: linear-gradient(90deg, #fff3f8, #ffe3ee, #fff3f8); background-size: 200% 100%; animation: shim 1.2s linear infinite; border-style: dashed; }
 @keyframes shim { from { background-position: 200% 0 } to { background-position: 0 0 } }
+/* シール貯金・シールを使う の記録（同じ形：左に日づけ、右に「シールを〇枚もらう／使う」） */
+.small-h { font-size: 15px; margin: 12px 0 6px; }
+.shist { display: flex; flex-direction: column; gap: 6px; }
+.srow { display: flex; align-items: center; gap: 10px; background: #fff; border: 2px solid var(--pink-l); border-radius: 14px; padding: 8px 12px; }
+.srow .sr-d { flex: 0 0 3.6em; font-weight: 900; color: var(--pink-d); font-variant-numeric: tabular-nums; }
+.srow .sr-t { flex: 1; font-weight: 700; }
+.srow .sr-t small { font-weight: 400; color: var(--mute); margin-left: 4px; }
+.srow .sr-a { display: flex; gap: 6px; }
+.srow.get { border-color: #ffd98a; background: #fffaf0; }
+.srow.use.no { opacity: .6; }
+.use-bal { font-size: 18px; margin: 6px 0; } .use-bal b { color: var(--pink-d); font-size: 22px; }
+.use-row { display: flex; gap: 10px; align-items: center; margin: 8px 0; }
+.use-row select { font-size: 18px; padding: 8px 10px; border-radius: 12px; border: 2px solid #f1d6e2; background: #fff; }
+.use-row .btn { flex: 1; }
+.use-row select { flex: 0 0 auto; width: auto; }
+.use-row .btn { flex: 1 1 auto; white-space: nowrap; writing-mode: horizontal-tb; }
+.sb-big { white-space: nowrap; }
+.srow .sr-t { min-width: 0; }

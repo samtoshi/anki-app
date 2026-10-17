@@ -233,8 +233,8 @@ export class CloudSync {
     }, (e) => onErr && onErr(e));
   }
 
-  // ---------- ごほうび（シール） ----------
-  /** ごほうびの一覧と、シールを使う申しこみを見つづける。cb({items, spends}) */
+  // ---------- 達成シール（シール交換） ----------
+  /** シール交換の一覧と、シールを使う申しこみを見つづける。cb({items, spends}) */
   async watchRewards(cb, onErr) {
     const fb = await loadFirebase();
     const r = this.refs(fb);
