@@ -242,7 +242,8 @@ function renderCard() {
   if (s.pad) { s.pad.destroy(); s.pad = null; }
   if (s.i >= s.items.length) return renderDone();
   const { card, deck } = s.items[s.i];
-  const hw = hwOn();
+  // 「書いて答える」カード（四字熟語など）は、手書きを OFF にしていない限り、スマホでも手書きにする
+  const hw = hwOn() || (card.input === 'write' && !!card.w && store.settings.handwriting !== 'off');
   s.phase = 'q'; s.hint = false; s.cur = { start: Date.now(), plan: null, miss: new Set(), tries: 0, recog: '', result: null, fixed: false, sugg: null, img: null, override: false };
   const left = s.items.length - s.i;
   const pct = Math.round((s.done / Math.max(1, s.done + left)) * 100);
@@ -283,8 +284,10 @@ function renderFace() {
   const tagLine = (card.tags || []).filter((t) => t !== '四字熟語').join('・');
   const badge = s.kind === 'study' ? (isNew ? '<span class="new-badge">NEW</span>' : '') : `<span class="cram-badge">${s.kind === 'review' ? '見直し' : '練習'}</span>`;
   let q;
-  if (c.writeMode) q = `<div class="q">${nl(card.wq)}</div>${s.hint ? `<div class="hint">💭 ${nl(card.whint)}</div>` : ''}`;
-  else q = `<div class="q ${yoji ? 'yoji' : ''}">${nl(card.q)}</div>${yoji && s.phase === 'q' ? '<div class="q-sub">読みと意味は？</div>' : ''}${s.hint && card.hint ? `<div class="hint">💭 ${nl(card.hint)}</div>` : ''}`;
+  const big = yoji && !card.qsub; // 以前の形（熟語を見て意味を答える）だけ大きく表示
+  const sub = card.qsub || (big ? '読みと意味は？' : '');
+  if (c.writeMode) q = `<div class="q">${nl(card.wq)}</div>${card.qsub && s.phase === 'q' ? `<div class="q-sub">${esc(card.qsub)}</div>` : ''}${s.hint ? `<div class="hint">💭 ${nl(card.whint)}</div>` : ''}`;
+  else q = `<div class="q ${big ? 'yoji' : ''}">${nl(card.q)}</div>${sub && s.phase === 'q' ? `<div class="q-sub">${esc(sub)}</div>` : ''}${s.hint && card.hint ? `<div class="hint">💭 ${nl(card.hint)}</div>` : ''}`;
   let body = '';
   if (s.phase === 'checking') body = '<div class="checking">🔍 よみとり中…</div>';
   if (s.phase === 'result' || s.phase === 'redo' || s.phase === 'answer') body = resultHtml();
@@ -293,7 +296,9 @@ function renderFace() {
 
 function answerHtml(card) {
   const c = session.cur;
-  const main = c.writeMode ? `<div class="a-main big">${esc(card.w)}</div><div class="reading">${esc(card.reading)}</div><div class="a-sub">${nl(card.a)}</div>`
+  const meaning = card.m || (card.a !== card.w ? card.a : '');
+  const main = (c.writeMode || (card.w && card.a === card.w))
+    ? `<div class="a-main big">${esc(card.w)}</div><div class="reading">${esc(card.reading)}</div>${meaning ? `<div class="a-sub">${nl(meaning)}</div>` : ''}`
     : `${card.reading ? `<div class="reading">${esc(card.reading)}</div>` : ''}<div class="a-main">${nl(card.a)}</div>`;
   return `${main}${card.note ? `<div class="note">💡 ${nl(card.note)}</div>` : ''}`;
 }

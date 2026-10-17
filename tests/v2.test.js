@@ -149,3 +149,21 @@ test('migrate：v1 の記録は legacyLog として残る', () => {
   assert.equal(d.v, 2); assert.equal(d.settings.newPerDay, 15); assert.equal(d.settings.handwriting, 'auto');
   assert.deepEqual(d.legacyLog, { 100: { r: 2, c: 1, n: {} } }); assert.deepEqual(d.reviews, []);
 });
+
+test('四字熟語（意味→漢字4字）：答え合わせと、まちがえた漢字だけのやり直し', async () => {
+  const { check, redoPlan, applyRedo, isGradable, answerKeys } = await import('../js/grade.js');
+  const card = { q: 'ひとつのことをして、ふたつの得をすること', a: '一石二鳥', w: '一石二鳥', reading: 'いっせきにちょう', input: 'write' };
+  assert.equal(isGradable(card), true);
+  assert.deepEqual(answerKeys(card), ['一石二鳥']);
+  assert.equal(check(card, '一石二鳥').correct, true);
+  const r = check(card, '一石二島');
+  assert.equal(r.correct, false);
+  const plan = redoPlan(r);
+  assert.ok(plan && plan.kanjiOnly);
+  assert.deepEqual(plan.blanks, [3]);
+  assert.equal(plan.expected, '鳥');
+  assert.equal(applyRedo(plan, '島').done, false);
+  assert.equal(applyRedo(plan, '鳥').done, true);
+  // 「々」の書き方のちがいも正解
+  assert.equal(check({ a: '正々堂々', w: '正々堂々', alts: ['正正堂堂'] }, '正正堂堂').correct, true);
+});
