@@ -31,7 +31,9 @@ function fakeJudge() {
   try { if (!['localhost', '127.0.0.1'].includes(location.hostname)) return null; return JSON.parse(localStorage.getItem('anki-cards:fake-judge') || 'null'); } catch { return null; }
 }
 export async function judgeOral(card, said) {
-  const j = fakeJudge() || await aiJSON('oral', [ORAL_PROMPT(card, said)], { timeout: 20000 }); // テスト用（localhost だけ）
+  const fj = fakeJudge();
+  if (fj && fj.__delay) await new Promise((r) => setTimeout(r, fj.__delay)); // テスト用：AIの待ち時間のまね
+  const j = fj || await aiJSON('oral', [ORAL_PROMPT(card, said)], { timeout: 20000 }); // テスト用（localhost だけ）
   const plain = String(card.a).replace(/（[^）]*）|\([^)]*\)/g, '');
   let term = String(j.term || '').replace(/[（(].*$/, '').trim();
   if (!term || term.length > 12 || !plain.includes(term) || ![...term].some(isKanji)) term = '';

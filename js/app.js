@@ -9,6 +9,7 @@ import { computeGame, streakInfo, stickerBalance, monthCells, badgeList, ringSvg
 import { speak, stopSpeak, canSpeak, canListen, listen } from './voice.js';
 import { judgeOral, oralGrade } from './tutor.js';
 import { sceneFor, sceneHtml } from './art.js';
+import { writeChars, cellLayout, cellStates, MAX_CELLS } from './cells.js';
 import { localMessage, aiMessage } from './dailymsg.js';
 import { CloudSync, loadFirebase, signInGoogle, signOut, loadContent, roleOf } from './cloud.js';
 import { appCheckSiteKey } from './firebase-config.js';
@@ -23,6 +24,10 @@ let reviewSel = null;
 let USER = null;      // ログインしている人
 let ROLE = null;      // 'learner'（まなとして勉強）| 'parent'（見るだけ）
 let CONTENT = null;   // Firestore から読んだカード
+// 読み上げの速さは「ふつう(1)」「はやい(1.2)」の2つだけ（前の「ゆっくり(0.8)」などは「ふつう」にする）
+// 声で回答する（設定。はじめは ON）。OFF なら声を聞かず、自分で答え合わせにする
+const voiceOn = () => store.settings.voiceAnswer !== false;
+const ttsRate = () => (Number(store.settings.ttsRate) === 1.2 ? 1.2 : 1);
 const isParentRole = () => ROLE === 'parent';
 // 確認モード：記録しない（父・ママがカードを試すとき）。ママ（見るだけ）はいつも確認モード
 const isAdult = () => isParentRole() || ((CONTENT?.manifest?.adults) || []).map((e) => String(e).toLowerCase()).includes(String(USER?.email || '').toLowerCase());
@@ -130,7 +135,7 @@ function viewHome() {
       <div class="deck-body">
         <div class="deck-name">${esc(d.name)} <small>${cur || ''} ${c.total}まい</small></div>
         <div class="bar"><span style="width:${pct}%"></span></div>
-        <div class="deck-meta">復習 <b>${c.due}</b>・新しい <b>${nNew}</b>・覚えた ${c.mastered}</div>
+        <div class="deck-meta">今日の学習 <b>${c.due}</b>・新しい <b>${nNew}</b>・覚えた ${c.mastered}</div>
       </div><div class="chev">›</div></a>`;
   }).join('');
   const todo = totalDue + totalNew;
@@ -145,8 +150,8 @@ function viewHome() {
     <div class="home-grid">
     <section class="today">
       <div class="today-num">${todo}<small>まい</small></div>
-      <div class="today-label">今日の復習</div>
-      ${todo ? `<a class="btn big primary" href="#/study/all">🌸 今日の復習をはじめる</a>`
+      <div class="today-label">今日の学習</div>
+      ${todo ? `<a class="btn big primary" href="#/study/all">🌸 今日の学習をはじめる</a>`
              : `<p class="done-msg">今日の分はおわり！えらい！✨</p>`}
       <a class="btn big soft" href="#/review">📝 テスト前見直し</a>
       ${(() => { const n = mistakeCards().length; return n ? `<a class="btn big soft" href="#/mistakes" id="homeMistakes">🔁 まちがい復習（${n}まい）</a>` : ''; })()}
@@ -237,13 +242,13 @@ function viewDeck(id, tag = '') {
     <header class="bar-top" style="--c:${d.color}"><a href="${isParentRole() ? '#/cards' : '#/'}" class="back">‹</a><h1>${d.emoji} ${esc(d.name)}</h1></header>
     ${chips}
     <section class="stat-row">
-      <div><b>${c.due}</b><span>復習</span></div>
+      <div><b>${c.due}</b><span>今日の学習</span></div>
       <div><b>${nNew}</b><span>今日の新しい</span></div>
       <div><b>${c.mastered}</b><span>覚えた</span></div>
       <div><b>${c.total}</b><span>ぜんぶ</span></div>
     </section>
     <div class="actions">
-      ${c.due + nNew ? `<a class="btn big primary" href="#/study/${d.id}${tag ? '/' + encodeURIComponent(tag) : ''}">🌸 今日の復習（${c.due + nNew}まい）</a>`
+      ${c.due + nNew ? `<a class="btn big primary" href="#/study/${d.id}${tag ? '/' + encodeURIComponent(tag) : ''}">🌸 今日の学習（${c.due + nNew}まい）</a>`
                     : `<p class="done-msg">このデッキの今日の分はおわり！🎉</p>`}
       <a class="btn big soft" href="#/cram/${d.id}${tag ? '/' + encodeURIComponent(tag) : ''}">🔁 ぜんぶ練習</a>
       <p class="small">「ぜんぶ練習」と「テスト前見直し」は、復習の予定を変えずに記録だけ残します。</p>
@@ -367,6 +372,13 @@ function startSession(deckIds, tag, cram) {
   startWith(items, cram ? 'cram' : 'study', back);
 }
 
+// テスト用（localhost だけ）：今の勉強の様子を見る・決まったカードで始める
+if (['localhost', '127.0.0.1'].includes(location.hostname)) {
+  window.__anki = {
+    session: () => session,
+    start: (ids) => { const items = ids.map((id) => { for (const d of DECKS) { const c = d.allCards.find((x) => x.id === id); if (c) return { card: c, deck: d }; } return null; }).filter(Boolean); startWith(items, 'review', '#/'); },
+  };
+}
 function startWith(items, kind, back) {
   session = { items, i: 0, kind, done: 0, again: 0, total: items.length, back, engine: null, combo: 0, xp: 0, confirm: confirmMode(), game0: confirmMode() ? null : game() };
   availableEngine(store.settings).then((e) => { if (session) { session.engine = e; if (e === 'gemini') warmAI(); if (session.phase === 'q') renderBottom(); } });
@@ -378,6 +390,7 @@ const logMode = () => (session.kind === 'study' ? 's' : 'r');
 function renderCard() {
   const s = session;
   if (!s) return go('#/');
+  stopMedia(s);
   if (s.pad) { s.pad.destroy(); s.pad = null; }
   if (s.i >= s.items.length) return renderDone();
   const { card, deck } = s.items[s.i];
@@ -406,9 +419,12 @@ function renderCard() {
     <footer class="study-bottom" id="bottom"></footer>
     </div>`;
   if (hw) {
-    const cells = writeMode ? [...card.w].length : null;
+    // マスの数は答えの字数（cells.js の writeChars）。答えの画面も同じ数・同じ並びで出す
+    const chars = gridChars(card);
+    s.cur.chars = chars;
+    const cells = writeMode ? chars.length : null;
     s.pad = new HandPad($('#pad'), {
-      dir: store.settings.hwDir || 'h', masu: writeMode || !!store.settings.hwMasu, cells,
+      dir: store.settings.hwDir || 'h', masu: writeMode || !!store.settings.hwMasu, cells, answerCells: writeMode ? null : (chars ? chars.length : null),
       onChange: (what) => {
         if (what === 'dir') store.setSetting('hwDir', s.pad.dir);
         if (what === 'masu') store.setSetting('hwMasu', s.pad.masu);
@@ -418,7 +434,7 @@ function renderCard() {
   }
   renderFace();
   renderBottom();
-  if (oral && store.settings.ttsAuto !== false) speak(card.q, { rate: store.settings.ttsRate || 1 });
+  if (oral && store.settings.ttsAuto !== false) speak(card.q, { rate: ttsRate() });
 }
 
 function renderFace() {
@@ -435,16 +451,16 @@ function renderFace() {
   else q = `<div class="q ${big ? 'yoji' : ''}">${nl(card.q)}</div>${sub && s.phase === 'q' ? `<div class="q-sub">${esc(sub)}</div>` : ''}${s.hint && card.hint ? `<div class="hint">💭 ${nl(card.hint)}</div>` : ''}`;
   if (canSpeak()) q = `<button class="speak" id="speakBtn" aria-label="読み上げ">🔊</button>` + q;
   let body = '';
-  if (s.phase === 'checking') body = '<div class="checking">🔍 よみとり中…</div>';
+  if (s.phase === 'checking') body = checkingHtml();
   if (c.oral && (s.phase === 'listening' || s.phase === 'judging' || s.phase === 'q') && c.said) body = `<div class="said">🎤 <span>${esc(c.said)}</span></div>`;
   if (s.phase === 'listening') body += '<div class="checking">👂 きいてるよ…話しおわったら「おわり」を押してね</div>';
   if (s.phase === 'judging') body += '<div class="checking">🐰 先生が考え中…</div>';
   if (s.phase === 'oral') body = oralResultHtml();
   if (s.phase === 'oralwrite' || s.phase === 'oralwritten') body = oralWriteHtml();
   if (s.phase === 'result' || s.phase === 'redo' || s.phase === 'answer') body = resultHtml();
-  $('#card').innerHTML = `<div class="card-tags">${deck.emoji} ${esc(deck.name)}${tagLine ? '・' + esc(tagLine) : ''} ${badge}${c.oral ? ' <span class="oral-badge">🎤 声で答える</span>' : ''}</div>${q}${body}`;
+  $('#card').innerHTML = `<div class="card-tags">${deck.emoji} ${esc(deck.name)}${tagLine ? '・' + esc(tagLine) : ''} ${badge}${c.oral ? (voiceOn() ? ' <span class="oral-badge">🎤 声で答える</span>' : ' <span class="oral-badge">🗣️ 答えを言ってから「こたえを見る」</span>') : ''}</div>${q}${body}`;
   const sb = document.getElementById('speakBtn');
-  if (sb) sb.onclick = () => speak(c.writeMode ? card.wq : card.q, { rate: store.settings.ttsRate || 1 });
+  if (sb) sb.onclick = () => speak(c.writeMode ? card.wq : card.q, { rate: ttsRate() });
 }
 
 function oralResultHtml() {
@@ -469,6 +485,50 @@ function oralWriteHtml() {
 function readingFor(term, card) {
   const m = String(card.a).match(new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[（(]([ぁ-んー・]+)[）)]'));
   return m ? m[1] : (card.reading && card.a.startsWith(term) ? card.reading : 'この言葉');
+}
+
+/** マス目にする答えの字（自動で答え合わせできて、MAX_CELLS 字以下のときだけ） */
+function gridChars(card) {
+  if (!(card.w || isGradable(card))) return null;
+  const ch = writeChars(card);
+  return ch.length && ch.length <= MAX_CELLS ? ch : null;
+}
+/** 手書き欄と同じ並び（1行のマス数・行の数）。手書き欄がマス目でなくても、同じ大きさで並べたときの形にする */
+function padLayout(n) {
+  const p = session.pad;
+  if (p && p.w) { const L = p.cellCount() === n ? p.layout() : null; return L || cellLayout(n, p.w, p.h, p.dir); }
+  return cellLayout(n, 600, 400, store.settings.hwDir || 'h');
+}
+/** 答えのマス（手書き欄と同じ並び）。states: cellStates の cells */
+function answerGridHtml(cells, L, { numbered = null, hideWrong = false } = {}) {
+  const fit = L.dir === 'v' ? L.lines : L.per;
+  const cs = Math.max(30, Math.min(52, Math.floor((Math.min(innerWidth, 900) - 72) / fit) - 6));
+  let k = 0;
+  return `<div class="agrid ${L.dir === 'v' ? 'v' : ''}" style="--per:${L.per};--cs:${cs}px">${cells.map((c, i) => numbered && numbered.has(i)
+    ? `<span class="cell blank">${++k}</span>`
+    : hideWrong && (c.st === 'bad' || c.st === 'miss')
+      // なおす前は正しい字を見せない（書いた字＝よみとった字 か ？ を出す）
+      ? `<span class="cell ${c.st}"><b>${esc(c.st === 'bad' && c.g ? c.g : '？')}</b></span>`
+      : `<span class="cell ${c.st}"><b>${esc(c.e)}</b>${c.st === 'bad' && c.g ? `<small>${esc(c.g)}</small>` : ''}</span>`).join('')}</div>`;
+}
+/** 今のカードの答えマス（結果があれば色つき） */
+function resultGridHtml(opts = {}) {
+  const c = session.cur;
+  const chars = c.chars;
+  if (!chars) return '';
+  const { cells, extra } = cellStates(c.result && !c.fixed && !c.override ? c.result : null, chars);
+  const L = padLayout(cells.length);
+  const shown = cells.map((x) => (x.st === 'none' || c.fixed || c.override ? { ...x, st: 'ok' } : x));
+  const hideWrong = !c.fixed && !c.override && (session.phase === 'result' || session.phase === 'redo'); // 「こたえを見る」までは正しい字を見せない
+  return answerGridHtml(shown, L, { hideWrong, ...opts }) + (extra.length && !opts.numbered ? `<div class="small">よぶんな字：<span class="chars">${extra.map((g) => `<span class="ch extra">${esc(g)}</span>`).join('')}</span></div>` : '');
+}
+
+/** 答え合わせ中の画面：すぐに出す（自分の字と、手書き欄と同じ並びの空のマス）。AIの結果はあとからうめる */
+function checkingHtml() {
+  const c = session.cur;
+  const mine = c.img ? `<figure class="mine"><img src="${c.img}" alt="自分の答え"><figcaption>自分の答え</figcaption></figure>` : '';
+  const grid = c.chars ? answerGridHtml(c.chars.map(() => ({ e: '', st: 'wait' })), padLayout(c.chars.length)).replace('class="agrid', 'class="agrid pending') : '';
+  return `<div class="a"><div class="checking">🔍 よみとり中…</div>${grid}${mine ? `<div class="a-row">${mine}</div>` : ''}</div>`;
 }
 
 function answerHtml(card) {
@@ -499,14 +559,14 @@ function resultHtml() {
   const { card } = s.items[s.i];
   const mine = c.img ? `<figure class="mine"><img src="${c.img}" alt="自分の答え"><figcaption>自分の答え</figcaption></figure>` : '';
   if (s.phase === 'answer') {
-    return `<div class="a">${c.result && !c.result.correct ? `<div class="recog">よみとり：<span class="chars">${diffHtml(c.result)}</span></div>` : ''}
+    return `<div class="a">${c.chars ? resultGridHtml() : c.result && !c.result.correct ? `<div class="recog">よみとり：<span class="chars">${diffHtml(c.result)}</span></div>` : ''}
       <div class="a-row">${mine}<div class="a-box">${answerHtml(card)}</div></div></div>`;
   }
   if (s.phase === 'redo') {
     const p = c.plan;
     const hint = readingOf(card);
     return `<div class="a"><div class="verdict redo">✏️ ${p.tries ? 'あと少し！' : ''}${p.blanks.length}文字だけ、もう一度書いてみよう</div>
-      <div class="mask">${maskHtml(p)}</div>
+      ${c.chars && p.chars.length === c.chars.length ? resultGridHtml({ numbered: new Set(p.blanks) }) : `<div class="mask">${maskHtml(p)}</div>`}
       ${p.kanjiOnly && hint ? `<div class="hint">💭 読み：${esc(hint)}</div>` : ''}
       <p class="small">番号のじゅんに、マスに書いてね（${p.tries}/3回）</p></div>`;
   }
@@ -514,11 +574,13 @@ function resultHtml() {
   const r = c.result;
   if (r && (r.correct || c.override)) {
     return `<div class="a"><div class="verdict ok">⭕ ${c.fixed ? 'なおせたね！' : c.override ? 'OK！' : 'せいかい！'}</div>
+      ${resultGridHtml()}
       <div class="a-row">${mine}<div class="a-box">${answerHtml(card)}</div></div></div>`;
   }
   return `<div class="a"><div class="verdict ng">${c.plan ? '🔎 おしい！' : '🙈 ちがうみたい'}</div>
-    <div class="recog">よみとり：<span class="chars">${r && r.got ? diffHtml(r) : '（よめなかった）'}</span></div>
-    ${c.plan ? `<div class="mask">${maskHtml(c.plan)}</div><p class="small">赤い字・？のところがちがうよ</p>` : ''}
+    ${c.chars && r && r.got ? `${resultGridHtml()}<p class="small">${c.plan ? '赤いマスがちがうよ（「なおす」でそこだけ書き直そう）' : '赤いマスがちがうよ（小さい字＝よみとった字）'}</p>`
+      : `<div class="recog">よみとり：<span class="chars">${r && r.got ? diffHtml(r) : '（よめなかった）'}</span></div>
+    ${c.plan ? `<div class="mask">${maskHtml(c.plan)}</div><p class="small">赤い字・？のところがちがうよ</p>` : ''}`}
     ${mine ? `<div class="a-row">${mine}</div>` : ''}</div>`;
 }
 
@@ -540,9 +602,9 @@ function renderBottom() {
   if (!b) return;
   const hintAvail = c.writeMode ? !!card.whint : !!card.hint;
   if (c.oral && (s.phase === 'q' || s.phase === 'listening' || s.phase === 'judging')) {
-    const mic = canListen() && !s.confirmNoMic;
+    const mic = voiceOn() && canListen() && !s.confirmNoMic;
     b.innerHTML = s.phase === 'listening' ? '<div class="pre"><button class="btn big primary rec" id="micStop">⏹ おわり</button></div>'
-      : s.phase === 'judging' ? '<div class="pre"><button class="btn big soft" disabled>🐰 考え中…</button></div>'
+      : s.phase === 'judging' ? '<div class="pre"><button class="btn soft" id="judgeSkip">自分で答え合わせ</button><button class="btn big soft" disabled>🐰 考え中…</button></div>'
       : `<div class="pre">${hintAvail && !s.hint ? '<button class="btn soft" id="hint">💭 ヒント</button>' : ''}
         ${mic ? '<button class="btn soft" id="reveal">こたえを見る</button><button class="btn big primary" id="micBtn">🎤 声で答える</button>' : '<button class="btn big primary" id="reveal">こたえを見る 👀</button>'}</div>`;
   } else if (s.phase === 'oral') {
@@ -556,7 +618,7 @@ function renderBottom() {
       ${canAuto ? '<button class="btn soft" id="reveal">こたえを見る</button><button class="btn big primary" id="checkBtn">✍️ 答え合わせ</button>'
                 : '<button class="btn big primary" id="reveal">こたえを見る 👀</button>'}</div>`;
   } else if (s.phase === 'checking') {
-    b.innerHTML = '<div class="pre"><button class="btn big soft" disabled>🔍 よみとり中…</button></div>';
+    b.innerHTML = '<div class="pre"><button class="btn soft" id="reveal">こたえを見る</button><button class="btn big soft" disabled>🔍 よみとり中…</button></div>';
   } else if (s.phase === 'result' && (c.result.correct || c.override)) {
     b.innerHTML = gradeButtons(c.sugg);
   } else if (s.phase === 'result') {
@@ -572,10 +634,11 @@ function renderBottom() {
   const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
   on('hint', () => { s.hint = true; renderFace(); renderBottom(); });
   if (c.oral) { on('reveal', () => { stopSpeak(); s.phase = 'oral'; c.sugg = null; refresh(); }); }
-  else on('reveal', () => { c.img = s.pad ? s.pad.thumbnail() : null; if (c.result == null && s.pad && !s.pad.isEmpty() && s.engine && isGradable(card)) c.sugg = null; s.phase = 'answer'; refresh(); });
+  else on('reveal', () => { c.checkToken = null; c.img = s.pad ? s.pad.thumbnail() : null; if (c.result == null && s.pad && !s.pad.isEmpty() && s.engine && isGradable(card)) c.sugg = null; s.phase = 'answer'; refresh(); });
   on('checkBtn', () => doCheck());
   on('micBtn', () => startListen());
-  on('micStop', () => c.listener && c.listener.stop());
+  on('micStop', () => { if (c.listener) c.listener.stop(); else { s.phase = 'q'; refresh(); } });
+  on('judgeSkip', () => { c.judgeToken = null; c.sugg = null; s.phase = 'oral'; refresh(); });
   on('termBtn', () => startTermWrite());
   on('termSkip', () => { s.phase = 'oral'; removePad(); refresh(); });
   on('termCheck', () => checkTerm());
@@ -595,9 +658,10 @@ async function doCheck() {
   const redo = s.phase === 'redo';
   if (!redo) c.img = s.pad.thumbnail();
   s.phase = 'checking'; refresh();
+  const token = (c.checkToken = {});
   let text;
   const target = redo ? c.plan.expected : normalize(String(writeTarget(card)).replace(/[（(][^）)]*[）)]/g, ''));
-  const ctx = { cells: s.pad.masu && s.pad.cells ? s.pad.cells : null, len: [...target].length, kanji: [...target].some(isKanji) };
+  const ctx = { cells: s.pad.cellCount(), layout: s.pad.layout(), len: [...target].length, kanji: [...target].some(isKanji) };
   try {
     // 書き終わって少し待っている間に先に読み取っていれば、その結果を使う（速くなる）
     const spec = !redo && c.spec && c.spec.ver === c.ver ? c.spec.p : null;
@@ -611,9 +675,11 @@ async function doCheck() {
       : code === 'ai-appcheck' ? 'AIの読み取りがいま使えません。自分で答え合わせしてね'
       : 'よみとりできなかったよ。自分で答え合わせしてね');
     if (code === 'ai-quota' || code === 'ai-appcheck') s.engine = null; // この回のあとは自己採点で進める
+    if (session !== s || s.cur !== c || c.checkToken !== token) return;
     s.phase = 'answer'; c.sugg = null; refresh(); return;
   }
-  if (session !== s) return;
+  if (session !== s || s.cur !== c || c.checkToken !== token) return; // 待っている間に「こたえを見る」を押した
+  c.checkToken = null;
   c.recog = text;
   if (!redo) {
     const r = check(card, text);
@@ -702,24 +768,31 @@ function scheduleSpec() {
   const c = s.cur, card = s.items[s.i].card;
   specTimer = setTimeout(() => {
     if (session !== s || s.cur !== c || s.phase !== 'q' || !s.pad || s.pad.isEmpty()) return;
-    if (s.pad.cells && countInkedCells(s.pad) < s.pad.cells) return; // マスがうまるまで待つ
+    if (s.pad.cellCount() && countInkedCells(s.pad) < s.pad.cellCount()) return; // マスがうまるまで待つ
     const target = normalize(String(writeTarget(card)).replace(/[（(][^）)]*[）)]/g, ''));
-    const ctx = { cells: s.pad.masu && s.pad.cells ? s.pad.cells : null, len: [...target].length, kanji: [...target].some(isKanji) };
+    const ctx = { cells: s.pad.cellCount(), layout: s.pad.layout(), len: [...target].length, kanji: [...target].some(isKanji) };
     c.spec = { ver: c.ver, p: recognize(s.engine, s.pad, ctx) };
     c.spec.p.catch(() => {});
   }, 900);
 }
 function countInkedCells(pad) {
-  const g = pad.grid(); const set = new Set();
-  for (const st of pad.strokes) for (const p of st.points) {
-    const k = pad.dir === 'v' ? Math.floor((p.y - g.y0) / g.size) : Math.floor((p.x - g.x0) / g.size);
-    if (k >= 0 && k < pad.cells) set.add(k);
-  }
+  const set = new Set();
+  for (const st of pad.strokes) for (const p of st.points) { const k = pad.cellAt(p.x, p.y); if (k >= 0) set.add(k); }
   return set.size;
 }
 
 // ---------- 声で答える ----------
+const JUDGE_MAX_MS = 12000;
+/** 声・読み上げ・AI待ちを全部やめる（終わる・画面を出る・次のカードへ） */
+function stopMedia(s = session) {
+  stopSpeak();
+  if (!s || !s.cur) return;
+  const c = s.cur;
+  if (c.listener) { try { c.listener.abort(); } catch {} c.listener = null; }
+  c.judgeToken = null;
+}
 async function startListen() {
+  if (!voiceOn()) return; // 設定で OFF のときは聞かない
   const s = session, c = s.cur;
   const card = s.items[s.i].card;
   let l;
@@ -732,16 +805,27 @@ async function startListen() {
     toast(/not-allowed|service-not-allowed/.test(e.code || '') ? 'マイクが使えないよ（設定でマイクをゆるしてね）' : '声がうまく聞きとれなかったよ');
     if (/not-allowed|service-not-allowed/.test(e.code || '')) s.confirmNoMic = true;
   }
+  if (c.listener === l) c.listener = null;
   if (session !== s || s.cur !== c) return;
   c.said = said;
   if (!said) { s.phase = 'q'; refresh(); toast('もう一度、声で答えてみてね'); return; }
   if (!s.engine) { s.phase = 'oral'; c.sugg = null; refresh(); return; } // AI が使えないときは自分で答え合わせ
   s.phase = 'judging'; refresh();
-  try { c.judge = await judgeOral(card, said); c.sugg = oralGrade(c.judge.result); }
-  catch (e) { console.warn(e); toast('先生がいま答えられないみたい。自分で答え合わせしてね'); if (e.code === 'ai-quota' || e.code === 'ai-appcheck') s.engine = null; }
+  // AI先生の判定は待ちすぎない（12秒まで）。「自分で答え合わせ」でいつでもとばせる
+  const token = (c.judgeToken = {});
+  try {
+    const j = await Promise.race([judgeOral(card, said), new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error('judge timeout'), { code: 'ai-timeout' })), JUDGE_MAX_MS))]);
+    if (c.judgeToken !== token) return; // とばした・画面を出た
+    c.judge = j; c.sugg = oralGrade(j.result);
+  }
+  catch (e) {
+    if (c.judgeToken !== token) return;
+    console.warn(e); toast('先生がいま答えられないみたい。自分で答え合わせしてね'); if (e.code === 'ai-quota' || e.code === 'ai-appcheck') s.engine = null;
+  }
+  c.judgeToken = null;
   if (session !== s || s.cur !== c) return;
   s.phase = 'oral'; refresh();
-  if (c.judge && store.settings.ttsAuto !== false) speak(c.judge.comment, { rate: store.settings.ttsRate || 1 });
+  if (c.judge && store.settings.ttsAuto !== false) speak(c.judge.comment, { rate: ttsRate() });
 }
 function ensurePad(cells) {
   const s = session;
@@ -817,7 +901,7 @@ function progressHtml(st) {
   }).join('');
   const stack = (x) => { const t = Math.max(1, x.total); return `<div class="stack"><span class="s-m" style="width:${(x.mastered / t) * 100}%"></span><span class="s-l" style="width:${(x.learning / t) * 100}%"></span><span class="s-n" style="width:${(x.new / t) * 100}%"></span></div>`; };
   const deckRows = st.decks.map((d) => `<div class="pdeck">
-      <div class="pdeck-h">${d.emoji} <b>${esc(d.name)}</b> <small>${d.total}まい・今日の復習 ${d.due}</small></div>
+      <div class="pdeck-h">${d.emoji} <b>${esc(d.name)}</b> <small>${d.total}まい・今日の学習 ${d.due}</small></div>
       ${stack(d)}
       <div class="legend"><span>🌟覚えた ${d.mastered}</span><span>🟡学習中 ${d.learning}</span><span>⚪新しい ${d.new}</span></div>
     </div>`).join('');
@@ -1056,8 +1140,11 @@ function viewSettings() {
         <select id="goal">${[10, 15, 20, 30, 40].map((n) => opt(n, s.goal || 20, n + 'まい')).join('')}</select></label>
       <label>問題を読み上げる（声で答えるカード）
         <select id="tts">${opt('on', s.ttsAuto === false ? 'off' : 'on', 'ON')}${opt('off', s.ttsAuto === false ? 'off' : 'on', 'OFF（🔊を押したときだけ）')}</select></label>
+      <label class="switch-row">🎤 声で回答する
+        <span class="switch"><input type="checkbox" id="voiceAns" ${voiceOn() ? 'checked' : ''}><span class="slider"></span></span></label>
+      <p class="small">OFF にすると、声で答えるカードは「こたえを見る」→ 自分で答え合わせ になります（マイクは使いません）。</p>
       <label>読み上げの速さ
-        <select id="ttsr">${[[0.8, 'ゆっくり'], [1, 'ふつう'], [1.2, 'はやい']].map(([v, l]) => opt(v, s.ttsRate || 1, l)).join('')}</select></label>
+        <select id="ttsr">${[[1, 'ふつう'], [1.2, 'はやい']].map(([v, l]) => opt(v, ttsRate(), l)).join('')}</select></label>
       ${isParentRole() ? '' : `<label>🔍 確認モード（記録しないで試す・パパ／ママ用）
         <select id="cfm">${opt('off', s.confirm ? 'on' : 'off', 'OFF（まなの記録をつける）')}${opt('on', s.confirm ? 'on' : 'off', 'ON（記録しない）')}</select></label>`}
     </section>
@@ -1091,6 +1178,7 @@ function viewSettings() {
   $('#hw').onchange = (e) => store.setSetting('handwriting', e.target.value);
   $('#goal').onchange = (e) => store.setSetting('goal', +e.target.value);
   $('#tts').onchange = (e) => store.setSetting('ttsAuto', e.target.value === 'on');
+  $('#voiceAns').onchange = (e) => store.setSetting('voiceAnswer', e.target.checked);
   $('#ttsr').onchange = (e) => store.setSetting('ttsRate', +e.target.value);
   const cfm = document.getElementById('cfm'); if (cfm) cfm.onchange = (e) => { store.setSetting('confirm', e.target.value === 'on'); route(); };
   $('#rc').onchange = (e) => store.setSetting('recognition', e.target.value);
@@ -1150,7 +1238,7 @@ function go(h) { if (location.hash === h) route(); else location.hash = h; }
 async function route() {
   const h = location.hash || '#/';
   if (unwatch) { try { unwatch(); } catch {} unwatch = null; }
-  if (session && session.pad) { session.pad.destroy(); }
+  if (session) { stopMedia(session); if (session.pad) session.pad.destroy(); }
   session = null;
   if (!USER || !DECKS.length) return viewLogin();
   const parts = h.slice(2).split('/').map(decodeURIComponent);

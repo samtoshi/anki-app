@@ -104,7 +104,7 @@ export function aiErrorKind(e) {
 export const PROMPT = (dir, ctx = {}) => [
   '画像は、小学生が指やペンで手書きした日本語（漢字・ひらがな・カタカナ・数字など）です。',
   `書かれている向きは${dir === 'v' ? '縦書き（右の列から左の列へ、上から下へ）' : '横書き（左から右へ）'}です。`,
-  ctx.cells ? `マス目は${ctx.cells}個です（1マスに1字ずつ書いてあります）。` : (ctx.len ? `目安として、${ctx.len}字くらいの答えです（ちがっていてもかまいません）。` : ''),
+  ctx.cells ? `マス目は${ctx.cells}個です（1マスに1字ずつ書いてあります${ctx.layout && ctx.layout.lines > 1 ? `。${ctx.layout.dir === 'v' ? `1列に${ctx.layout.per}マスずつ、右の列から順に読みます` : `1行に${ctx.layout.per}マスずつ、上の行から順に読みます`}` : ''}）。` : (ctx.len ? `目安として、${ctx.len}字くらいの答えです（ちがっていてもかまいません）。` : ''),
   ctx.kanji ? '漢字で書く問題です。' : '',
   '書かれている文字を、見えるとおりにそのまま書き起こしてください。',
   '・まちがった字や形のくずれた字も、正しい字に直したり、言葉として自然になるよう補ったりしないでください。',
@@ -185,6 +185,8 @@ export async function recognize(engine, pad, ctx = {}) {
     const q = fakeQueue() || [];
     const t = q.shift();
     localStorage.setItem('anki-cards:fake-recog', JSON.stringify(q.length ? q : ['']));
+    const m = /^~(\d+):([\s\S]*)$/.exec(t || ''); // 「~2500:答え」= 2.5秒まって答える（AIの待ち時間のまね）
+    if (m) { await new Promise((r) => setTimeout(r, +m[1])); return m[2]; }
     if (t === '!error') throw new Error('fake error');
     if (t === '!quota') throw Object.assign(new Error('quota'), { code: 'ai-quota' });
     return t ?? '';

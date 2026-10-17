@@ -1,11 +1,12 @@
 // 手書きパッド（指・Apple Pencil・タッチペン）
 // Pointer Events を使い、書いている間はスクロールや拡大をしない。
 // ペンを使っているあいだは、手のひら（タッチ）を無視する。
+import { cellLayout, cellRect, cellAt } from './cells.js';
 
 export class HandPad {
   /**
    * @param {HTMLElement} host
-   * @param {{dir?:'h'|'v', masu?:boolean, cells?:number|null, onChange?:Function, compact?:boolean}} opt
+   * @param {{dir?:'h'|'v', masu?:boolean, cells?:number|null, answerCells?:number|null, onChange?:Function, compact?:boolean}} opt
    */
   constructor(host, opt = {}) {
     this.host = host;
@@ -13,6 +14,7 @@ export class HandPad {
     this.masu = opt.masu ?? false;
     this.cells = opt.cells || null;      // マス目の数を決めるとき（やり直し・四字熟語）
     this.fixed = !!opt.cells;
+    this.answerCells = opt.answerCells || null; // マス目ONのときのマスの数（答えの字数。答えの画面と同じ並びにする）
     this.onChange = opt.onChange || (() => {});
     this.strokes = [];
     this.history = [];
@@ -69,23 +71,51 @@ export class HandPad {
     const r = this.wrap.getBoundingClientRect();
     if (!r.width || !r.height) return;
     const dpr = Math.min(3, window.devicePixelRatio || 1);
+    const oldW = this.w, oldH = this.h, oldL = this.layout && this.w ? this.layout() : null;
     this.w = r.width; this.h = r.height; this.dpr = dpr;
+    // 大きさが変わったら（答えの画面で問題の欄が広がったときなど）、書いた字もマスといっしょに動かす
+    if (oldW && (oldW !== this.w || oldH !== this.h) && this.strokes.length) this.remap(oldW, oldH, oldL);
     for (const cv of [this.bg, this.ink]) { cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr); }
     this.drawGrid();
     this.redraw();
   }
 
+  /** 書いた線を、前の大きさ・マスから今の大きさ・マスへうつす（字がマスからずれないように） */
+  remap(oldW, oldH, oldL) {
+    const L = this.layout();
+    let f;
+    if (oldL && L && oldL.n === L.n) {
+      f = (p) => {
+        const col = Math.min(oldL.cols - 1, Math.max(0, Math.floor((p.x - oldL.x0) / oldL.size)));
+        const row = Math.min(oldL.rows - 1, Math.max(0, Math.floor((p.y - oldL.y0) / oldL.size)));
+        let i = oldL.dir === 'v' ? (oldL.cols - 1 - col) * oldL.per + row : row * oldL.per + col;
+        i = Math.min(L.n - 1, i);
+        const ox = oldL.x0 + col * oldL.size, oy = oldL.y0 + row * oldL.size;
+        const nr = cellRect(i, L), k = L.size / oldL.size;
+        return { ...p, x: nr.x + (p.x - ox) * k, y: nr.y + (p.y - oy) * k };
+      };
+    } else {
+      const k = Math.min(this.w / oldW, this.h / oldH);
+      const dx = (this.w - oldW * k) / 2, dy = (this.h - oldH * k) / 2;
+      f = (p) => ({ ...p, x: p.x * k + dx, y: p.y * k + dy });
+    }
+    const all = new Set(this.strokes);
+    for (const h of this.history) for (const it of h.items || []) if (it && it.s) all.add(it.s);
+    for (const st of all) st.points = st.points.map(f);
+  }
+
+  /** いま使っているマスの数（自由に書くときは null） */
+  cellCount() { return this.cells || (this.masu && this.answerCells) || null; }
+  /** マスの並び（cells.js の cellLayout。答えの画面もこれと同じ per・lines を使う） */
+  layout() { const n = this.cellCount(); return n && this.w ? cellLayout(n, this.w, this.h, this.dir) : null; }
+  cellRect(i) { const L = this.layout(); return L ? cellRect(i, L) : null; }
+  cellAt(x, y) { const L = this.layout(); return L ? cellAt(x, y, L) : -1; }
+
   /** マス目のサイズと位置 */
   grid() {
     const { w, h } = this;
-    if (this.cells) {
-      const n = this.cells;
-      const size = this.dir === 'v' ? Math.min(w * 0.8, (h - 16) / n) : Math.min(h * 0.8, (w - 16) / n);
-      const total = size * n;
-      const x0 = this.dir === 'v' ? (w - size) / 2 : (w - total) / 2;
-      const y0 = this.dir === 'v' ? (h - total) / 2 : (h - size) / 2;
-      return { size, x0, y0, cols: this.dir === 'v' ? 1 : n, rows: this.dir === 'v' ? n : 1 };
-    }
+    const n = this.cellCount();
+    if (n) return this.layout();
     const size = Math.max(72, Math.min(200, Math.min(w, h) / 2.2)); // 大きく書けるように
     const cols = Math.floor(w / size), rows = Math.floor(h / size);
     return { size, x0: (w - cols * size) / 2, y0: (h - rows * size) / 2, cols, rows };
@@ -105,9 +135,13 @@ export class HandPad {
       g.stroke(); g.setLineDash([]);
       return;
     }
-    const { size, x0, y0, cols, rows } = this.grid();
-    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
-      const x = x0 + c * size, y = y0 + r * size;
+    const L = this.layout();
+    const boxes = L ? Array.from({ length: L.n }, (_, i) => cellRect(i, L)) : (() => {
+      const { size, x0, y0, cols, rows } = this.grid(); const out = [];
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) out.push({ x: x0 + c * size, y: y0 + r * size, size });
+      return out;
+    })();
+    for (const { x, y, size } of boxes) {
       g.fillStyle = '#fffafc'; g.fillRect(x, y, size, size);
       g.strokeStyle = '#ffb3cb'; g.lineWidth = 2; g.strokeRect(x + 1, y + 1, size - 2, size - 2);
       g.strokeStyle = '#fbe0ea'; g.lineWidth = 1; g.setLineDash([4, 5]);

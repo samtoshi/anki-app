@@ -36,26 +36,40 @@ export const canListen = () => !!SR;
  * 声を聞く。onPartial(とちゅうの文字) を呼びながら、終わったら全部の文字を返す。
  * 戻り値 { stop() , done: Promise<string> }
  */
-export function listen({ onPartial = () => {}, maxMs = 30000 } = {}) {
+export function listen({ onPartial = () => {}, maxMs = 30000, stopGraceMs = 800 } = {}) {
   if (!SR) throw Object.assign(new Error('この端末では声で答えられません'), { code: 'no-sr' });
   stopSpeak();
   const r = new SR();
   r.lang = 'ja-JP'; r.interimResults = true; r.continuous = true; r.maxAlternatives = 1;
-  let finalText = '', interim = '', stopped = false;
-  const done = new Promise((res, rej) => {
-    r.onresult = (e) => {
-      interim = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) finalText += t; else interim += t;
-      }
-      onPartial(finalText + interim);
-    };
-    r.onerror = (e) => { if (e.error === 'no-speech' || e.error === 'aborted') return; rej(Object.assign(new Error(e.error), { code: 'sr-' + e.error })); };
-    r.onend = () => res((finalText + interim).trim());
-  });
+  let finalText = '', interim = '', stopped = false, settled = false, grace = null;
+  let resolveDone, rejectDone;
+  const done = new Promise((res, rej) => { resolveDone = res; rejectDone = rej; });
+  const finish = (err) => {
+    if (settled) return; settled = true;
+    clearTimeout(timer); clearTimeout(grace);
+    r.onresult = r.onerror = r.onend = null;
+    if (err) rejectDone(err); else resolveDone((finalText + interim).trim());
+  };
+  r.onresult = (e) => {
+    interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) finalText += t; else interim += t;
+    }
+    onPartial(finalText + interim);
+  };
+  r.onerror = (e) => { if (e.error === 'no-speech' || e.error === 'aborted') return; finish(Object.assign(new Error(e.error), { code: 'sr-' + e.error })); };
+  r.onend = () => finish();
   try { r.start(); } catch (e) { throw Object.assign(e, { code: 'sr-start' }); }
   const timer = setTimeout(() => stop(), maxMs);
-  function stop() { if (stopped) return; stopped = true; clearTimeout(timer); try { r.stop(); } catch {} }
-  return { stop, done };
+  // 「おわり」を押したら止める。Safari などで onend が来ないことがあるので、少し待っても来なければ
+  // abort して、そこまで聞こえた文字で終わりにする（画面が止まったままにならないように）
+  function stop() {
+    if (stopped) return; stopped = true;
+    try { r.stop(); } catch {}
+    grace = setTimeout(() => { try { r.abort(); } catch {} finish(); }, stopGraceMs);
+  }
+  /** すぐにやめる（画面を出るときなど）。聞こえた文字は捨てない */
+  function abort() { stopped = true; try { r.abort(); } catch {} finish(); }
+  return { stop, abort, done };
 }

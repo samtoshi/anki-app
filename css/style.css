@@ -343,3 +343,22 @@ small { font-size: .78em; color: var(--mute); font-weight: normal; }
 @keyframes da-bob { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-6px) } }
 @keyframes da-tw { 0%, 100% { transform: scale(1); opacity: 1 } 50% { transform: scale(1.2); opacity: .7 } }
 @media (prefers-reduced-motion: reduce) { .da-main, .da-s { animation: none; } }
+
+/* 答えのマス（手書き欄と同じ並び：cells.js の cellLayout） */
+.agrid { display: grid; grid-template-columns: repeat(var(--per), var(--cs)); grid-auto-rows: var(--cs); gap: 4px; justify-content: center; margin: 8px auto; }
+.agrid.v { writing-mode: vertical-rl; grid-template-columns: repeat(var(--per), var(--cs)); grid-auto-rows: var(--cs); justify-content: center; }
+.agrid .cell { position: relative; display: grid; place-items: center; border: 2px solid #ffb3cb; border-radius: 8px; background: #fffafc; font-size: calc(var(--cs) * .6); font-weight: 900; color: #2a7a4c; writing-mode: horizontal-tb; }
+.agrid .cell.ok { background: #f4fff8; border-color: #9fdcb8; }
+.agrid .cell.bad, .agrid .cell.miss { background: #ffe1e1; border-color: #f59a9a; color: #d33; }
+.agrid .cell small { position: absolute; right: 2px; bottom: 0; font-size: calc(var(--cs) * .28); color: #b55; text-decoration: line-through; }
+.agrid .cell.blank { background: #fff; border: 3px dashed #ffb3cb; color: #ffb3cb; font-size: calc(var(--cs) * .35); }
+.stat-row span { white-space: nowrap; }
+.switch-row { display: flex !important; align-items: center; justify-content: space-between; gap: 12px; }
+.switch { position: relative; display: inline-block; width: 54px; height: 30px; flex: 0 0 auto; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch .slider { position: absolute; inset: 0; background: #e6d6ee; border-radius: 999px; transition: .2s; cursor: pointer; }
+.switch .slider::before { content: ''; position: absolute; left: 3px; top: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); transition: .2s; }
+.switch input:checked + .slider { background: #ff7aa8; }
+.switch input:checked + .slider::before { transform: translateX(24px); }
+.agrid.pending .cell { background: linear-gradient(90deg, #fff3f8, #ffe3ee, #fff3f8); background-size: 200% 100%; animation: shim 1.2s linear infinite; border-style: dashed; }
+@keyframes shim { from { background-position: 200% 0 } to { background-position: 0 0 } }
