@@ -6,7 +6,7 @@ import { check, redoPlan, applyRedo, autoGrade, isGradable, readingOf, isKanji, 
 import { HandPad, isTablet } from './handwriting.js';
 import { availableEngine, recognize, warmAI } from './recognize.js';
 import { computeGame, streakInfo, stickerBalance, monthCells, badgeList, ringSvg, confetti, stickerFor, XP, COMBO_BONUS, STUDY_MIN, STICKER_DAYS } from './game.js';
-import { speak, stopSpeak, canSpeak, canListen, listen, unlockSpeechOnFirstTap } from './voice.js';
+import { speak, speakFromTap, stopSpeak, canSpeak, canListen, listen, armSpeechGestures, onSpeechBlocked, speechPending } from './voice.js';
 import { judgeOral, oralGrade } from './tutor.js';
 import { sceneFor, sceneHtml } from './art.js';
 import { writeChars, cellLayout, cellStates, MAX_CELLS } from './cells.js';
@@ -455,7 +455,7 @@ function renderFace() {
   const sub = card.qsub || (big ? '読みと意味は？' : '');
   if (c.writeMode) q = `<div class="q">${nl(card.wq)}</div>${card.qsub && s.phase === 'q' ? `<div class="q-sub">${esc(card.qsub)}</div>` : ''}${s.hint ? `<div class="hint">💭 ${nl(card.whint)}</div>` : ''}`;
   else q = `<div class="q ${big ? 'yoji' : ''}">${nl(card.q)}</div>${sub && s.phase === 'q' ? `<div class="q-sub">${esc(sub)}</div>` : ''}${s.hint && card.hint ? `<div class="hint">💭 ${nl(card.hint)}</div>` : ''}`;
-  if (canSpeak()) q = `<button class="speak" id="speakBtn" aria-label="読み上げ">🔊</button>` + q;
+  if (canSpeak()) q = `<button class="speak ${speechPending() ? 'needs-tap' : ''}" id="speakBtn" aria-label="読み上げ">🔊</button>` + q;
   let body = '';
   if (s.phase === 'checking') body = checkingHtml();
   if (c.oral && (s.phase === 'listening' || s.phase === 'judging' || s.phase === 'q') && c.said) body = `<div class="said">🎤 <span>${esc(c.said)}</span></div>`;
@@ -466,7 +466,7 @@ function renderFace() {
   if (s.phase === 'result' || s.phase === 'redo' || s.phase === 'answer') body = resultHtml();
   $('#card').innerHTML = `<div class="card-tags">${deck.emoji} ${esc(deck.name)}${tagLine ? '・' + esc(tagLine) : ''} ${badge}${c.oral ? (voiceOn() ? ' <span class="oral-badge">🎤 声で答える</span>' : ' <span class="oral-badge">🗣️ 答えを言ってから「こたえを見る」</span>') : ''}</div>${q}${body}`;
   const sb = document.getElementById('speakBtn');
-  if (sb) sb.onclick = () => speak(questionText(card, c), { rate: ttsRate() });
+  if (sb) sb.onclick = () => speakFromTap(questionText(card, c), { rate: ttsRate() }); // タップの中ですぐ読む（iPad）
 }
 
 function oralResultHtml() {
@@ -1308,7 +1308,8 @@ document.addEventListener('keydown', (e) => {
   window.addEventListener('online', () => cloud.sync());
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') cloud.sync(); });
   window.addEventListener('hashchange', () => { if (USER) route(); });
-  unlockSpeechOnFirstTap(); // iOS：さいしょのタップ（「はじめる」など）で読み上げを使えるようにする
+  armSpeechGestures(); // iPad：タップのたびに読み上げの準備。始められなかった問題は次のタップで読む
+  onSpeechBlocked((on) => { const b = document.getElementById('speakBtn'); if (b) b.classList.toggle('needs-tap', on); });
   try {
     await loadFirebase();
     await afterLogin();

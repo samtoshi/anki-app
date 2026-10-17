@@ -380,3 +380,7 @@ small { font-size: .78em; color: var(--mute); font-weight: normal; }
 .use-row .btn { flex: 1 1 auto; white-space: nowrap; writing-mode: horizontal-tb; }
 .sb-big { white-space: nowrap; }
 .srow .sr-t { min-width: 0; }
+/* 読み上げが始められなかったとき（iPad）：🔊 を光らせて「タップで読む」 */
+.speak.needs-tap { border-color: var(--pink, #ff8fb1); box-shadow: 0 0 0 0 rgba(255, 143, 177, .7); animation: tapPulse 1.4s ease-out infinite; position: relative; }
+.speak.needs-tap::after { content: 'タップで読むよ'; position: absolute; right: 0; top: 46px; white-space: nowrap; font-size: 11px; color: #d1477a; font-weight: 700; }
+@keyframes tapPulse { 0% { box-shadow: 0 0 0 0 rgba(255, 143, 177, .7); } 80%, 100% { box-shadow: 0 0 0 12px rgba(255, 143, 177, 0); } }
