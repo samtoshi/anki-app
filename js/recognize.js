@@ -40,7 +40,8 @@ async function modelFor(name) {
       generationConfig: {
         responseMimeType: 'application/json',
         responseSchema: ai.Schema.object({ properties: { text: ai.Schema.string() } }),
-        maxOutputTokens: 400, // 考える分のトークンもふくむので少し余裕をもたせる
+        maxOutputTokens: 1500, // 考える分（thinking）もふくむ。少ないと答えが途中で切れる
+        thinkingConfig: { thinkingLevel: 'LOW' }, // 本番で確認ずみ（MINIMAL は 3.8-flash で使えない）
         temperature: 0,
       },
     }));
@@ -77,8 +78,13 @@ export const PROMPT = (dir, ctx = {}) => [
   '結果は JSON {"text": "..."} だけで返してください。',
 ].filter(Boolean).join('\n');
 
-function parseText(t) {
-  try { return String(JSON.parse(t).text || '').trim(); } catch { return String(t).replace(/[{}"]/g, '').replace(/^\s*text\s*:/, '').trim(); }
+function parseText(res) {
+  // 途中で切れた答え（MAX_TOKENS など）は使わない：一部だけの字で「まちがい」にしないため
+  const fin = res.candidates?.[0]?.finishReason;
+  if (fin && fin !== 'STOP') throw Object.assign(new Error('読み取りの答えが途中で切れました: ' + fin), { code: 'ai-truncated' });
+  const t = res.text();
+  try { return String(JSON.parse(t).text || '').trim(); }
+  catch { throw Object.assign(new Error('読み取りの答えの形がへんです'), { code: 'ai-truncated' }); }
 }
 
 async function geminiRead(pad, ctx) {
@@ -91,11 +97,12 @@ async function geminiRead(pad, ctx) {
     try {
       const model = await modelFor(name);
       const res = await withTimeout(model.generateContent([PROMPT(pad.dir, ctx), { inlineData: { data: img.base64, mimeType: 'image/png' } }]), 20000);
-      return parseText(res.response.text());
+      return parseText(res.response);
     } catch (e) {
       last = e;
       const k = aiErrorKind(e);
       console.warn('AI読み取り', name, k, e?.message);
+      if (e && e.code === 'ai-truncated') continue; // 次のモデルでもう一度
       if (k === 'quota' || k === 'model') { skip(name); continue; }
       if (k === 'billing') throw Object.assign(e, { code: 'ai-quota' });
       throw Object.assign(e, { code: k === 'appcheck' ? 'ai-appcheck' : k === 'offline' ? 'ai-offline' : (e.code || 'ai-error') });
