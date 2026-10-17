@@ -1033,7 +1033,7 @@ function rewardsHtml(daily) {
   const use = !canUse ? ''
     : !ready ? '<p class="small">パパ・ママの画面（または父のアカウント）でこの画面を一度ひらくと、シールを使えるようになるよ。</p>'
     : max < 1 ? '<p class="small">シールがたまったら使えるよ。7日れんぞくで1枚もらえるよ！</p>'
-    : `<div class="use-row"><select id="useN">${Array.from({ length: max }, (_, i) => `<option value="${i + 1}" ${i + 1 === n ? 'selected' : ''}>${i + 1}枚</option>`).join('')}</select><button class="btn primary" id="useBtn">シールを${n}枚使う</button></div>`;
+    : `<div class="use-row"><select id="useN">${Array.from({ length: max }, (_, i) => `<option value="${i + 1}" ${i + 1 === n ? 'selected' : ''}>${i + 1}枚</option>`).join('')}</select><button class="btn primary" id="useBtn">交換</button></div>`;
   return `<h2 class="sec">${isParentRole() ? '🎀 シール交換' : '🎀 シールを使う'}</h2>
     <div class="use-bal">いま <b>シール${bal.balance}枚</b></div>${use}
     ${isAdult() ? `<details class="adult" id="adultBox" ${isParentRole() || ADULT_OPEN ? 'open' : ''}><summary>👪 おとな用：シール交換</summary>
@@ -1043,7 +1043,7 @@ function rewardsHtml(daily) {
 let USE_N = 1;
 function bindRewards() {
   const sel = document.getElementById('useN'), btn = document.getElementById('useBtn');
-  if (sel) sel.onchange = () => { USE_N = +sel.value; btn.textContent = `シールを${USE_N}枚使う`; };
+  if (sel) sel.onchange = () => { USE_N = +sel.value; };
   if (btn) btn.onclick = async () => {
     const k = +(sel ? sel.value : 1); const id = `n${k}`; const it = REWARDS.items && REWARDS.items[id];
     if (!it) return toast('まだ使えないよ。パパ・ママに聞いてね');
