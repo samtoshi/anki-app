@@ -108,6 +108,7 @@ async function geminiRead(pad, ctx) {
       throw Object.assign(e, { code: k === 'appcheck' ? 'ai-appcheck' : k === 'offline' ? 'ai-offline' : (e.code || 'ai-error') });
     }
   }
+  if (last && last.code === 'ai-truncated') throw last; // 読み取れなかっただけ（上限ではない）
   throw Object.assign(new Error('今日のAI読み取りの上限に達しました'), { code: 'ai-quota', cause: last });
 }
 
