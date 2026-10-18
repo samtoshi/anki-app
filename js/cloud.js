@@ -4,6 +4,7 @@
 // - 記録は「まな」1人分（learners/main）。まな・父（タブレット）が書けて、ママは見るだけ
 import { firebaseConfig, appCheckSiteKey } from './firebase-config.js';
 import { mergeStates, mergeReviews } from './merge.js';
+import { mergeSlog, mergeSel, pickInprog } from './store.js';
 
 export const SDK_VERSION = '13.0.0';
 const CDN = `https://www.gstatic.com/firebasejs/${SDK_VERSION}/`;
@@ -170,6 +171,15 @@ export class CloudSync {
         const remote = snap.exists() ? snap.data() : {};
         // 今日のひとこと：同じ日なら先に作った方にそろえる（どの端末でも同じものを出す）
         if (remote.dmsg && remote.dmsg.day && (!data.dmsg || remote.dmsg.day > data.dmsg.day || (remote.dmsg.day === data.dmsg.day && (remote.dmsg.at || 0) < (data.dmsg.at || 0)))) { data.dmsg = remote.dmsg; this.onDmsg && this.onDmsg(); }
+        // 勉強の記録（時刻つき）・はんい・とちゅうの勉強
+        const ms = mergeSlog(data.slog, remote.slog);
+        data.slog = ms.slog;
+        const msel = mergeSel(data.sel, remote.sel);
+        data.sel = msel.sel;
+        const mi = pickInprog(data.inprog, remote.inprog);
+        if (mi.changed) { data.inprog = mi.inprog; data.inprogDirty = false; }
+        const otherChanged = ms.added > 0 || msel.changed || mi.changed;
+        if (msel.changed && this.onSel) this.onSel();
         const m = mergeStates(data.states, remote.states || {});
         data.states = m.states;
         const since = Math.max(0, (link.pullT || 0) - 3600e3);
@@ -196,6 +206,9 @@ export class CloudSync {
           store.save();
         }
         const d = store.derived;
+        const slogIds = [...(data.slogDirty || [])];
+        const slogPush = Object.fromEntries(slogIds.filter((id) => data.slog[id]).map((id) => [id, data.slog[id]]));
+        const selPush = data.selDirty ? data.sel : null;
         const statesPush = {};
         for (const id of m.push) statesPush[id] = data.states[id];
         // 注意：merge:true で空の {} を送ると states 全体が {} に上書きされるので、送るものがある時だけ入れる
@@ -206,19 +219,35 @@ export class CloudSync {
           charMiss: d.charMiss,
           ...(this.gameSummary ? { game: this.gameSummary() } : {}),
           ...(data.dmsg ? { dmsg: data.dmsg } : {}),
+          ...(Object.keys(slogPush).length ? { slog: slogPush } : {}),
+          ...(selPush ? { sel: selPush } : {}),
           nickname: store.settings.nickname || '',
           updatedAt: fs.serverTimestamp(),
           clientAt: Date.now(),
         }, { merge: true });
+        data.slogDirty = (data.slogDirty || []).filter((id) => !slogIds.includes(id) || slogPush[id] !== data.slog[id]);
+        if (selPush && selPush === data.sel) data.selDirty = false;
+        // とちゅうの勉強は、まるごと入れかえる（merge だと前の中身が残るので mergeFields）
+        if (data.inprogDirty && data.inprog) {
+          const sent = data.inprog;
+          await fs.setDoc(r.state, { inprog: sent }, { mergeFields: ['inprog'] });
+          if (data.inprog === sent) data.inprogDirty = false;
+        }
         link.pullT = Math.max(maxT, ...toSend.map((e) => e.t), link.pullT || 0);
         link.lastSync = Date.now();
         store.save();
-        if (m.pulled.length || mr.added) store.changed();
+        if (m.pulled.length || mr.added || otherChanged) store.changed();
+        if (otherChanged && this.onRemote) try { this.onRemote({ inprog: mi.changed, sel: msel.changed, slog: ms.added > 0 }); } catch {}
         this.setStatus('ok');
       } catch (e) {
         console.warn('sync failed', e);
         this.setStatus(navigator.onLine === false ? 'offline' : 'error', e.code || e.message);
-      } finally { this.running = null; }
+      } finally {
+        this.running = null;
+        // 同期しているあいだに答えた分（とちゅうの勉強・記録）は、すぐもう一度送る
+        const dd = this.store.data;
+        if (this.status === 'ok' && (dd.inprogDirty || (dd.slogDirty || []).length || dd.pending.length || dd.selDirty)) this.schedule(800);
+      }
     })();
     return this.running;
   }
@@ -228,7 +257,7 @@ export class CloudSync {
     const fb = await loadFirebase();
     return fb.fs.onSnapshot(this.refs(fb).state, (snap) => {
       const d = snap.exists() ? snap.data() : {};
-      cb({ states: d.states || {}, daily: d.daily || {}, lastGrades: d.lastGrades || {}, charMiss: d.charMiss || {}, game: d.game || null, dmsg: d.dmsg || null, settings: { nickname: d.nickname || '' } },
+      cb({ states: d.states || {}, daily: d.daily || {}, lastGrades: d.lastGrades || {}, charMiss: d.charMiss || {}, game: d.game || null, dmsg: d.dmsg || null, slog: d.slog || {}, settings: { nickname: d.nickname || '' } },
         { at: d.clientAt || null, exists: snap.exists() });
     }, (e) => onErr && onErr(e));
   }

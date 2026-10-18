@@ -76,6 +76,38 @@ async function loadDecks() {
     const cur = units.filter((u) => u.latest);
     return { ...d, units, cards: cur.flatMap((u) => u.cards), allCards: units.flatMap((u) => u.cards) };
   });
+  applyRanges();
+}
+// ---------- はんい（社会・理科：どの回をやるか。いくつでも。教科ごとに覚えて、ほかの端末ともそろえる） ----------
+const RANGE_DECKS = ['shakai', 'rika'];
+const hasRange = (d) => RANGE_DECKS.includes(d.id) && d.units.filter((u) => u.kai != null).length > 1;
+/** えらんだ回（なければ、いままでどおり「さいしん」の回） */
+function rangeKais(d) {
+  const valid = d.units.map((u) => u.kai);
+  const saved = ((store.data.sel || {})[d.id]?.k || []).filter((k) => valid.includes(k));
+  return saved.length ? saved : d.units.filter((u) => u.latest).map((u) => u.kai);
+}
+function applyRanges() {
+  for (const d of DECKS) {
+    if (!hasRange(d)) { d.units.forEach((u) => { u.sel = u.latest; }); continue; }
+    const ks = rangeKais(d);
+    d.units.forEach((u) => { u.sel = ks.includes(u.kai); });
+    d.cards = d.units.filter((u) => u.sel).flatMap((u) => u.cards);
+  }
+  GAME_CACHE = null;
+}
+/** 「第24回 自由民権運動」「第23・24回」 */
+function rangeText(d) {
+  const us = d.units.filter((u) => u.sel && u.kai != null).sort((a, b) => a.kai - b.kai);
+  if (!us.length) return '';
+  if (us.length === 1) return `第${us[0].kai}回 ${us[0].name || ''}`.trim();
+  return `第${us.map((u) => u.kai).join('・')}回`;
+}
+/** 記録に残す「はんい」の言葉：カードの回から作る（例：社会 第24回・理科 第23・25回） */
+function itemsRangeLabel(items) {
+  const by = new Map();
+  for (const { card, deck } of items) { if (!by.has(deck.id)) by.set(deck.id, { deck, k: new Set() }); if (card.kai != null) by.get(deck.id).k.add(card.kai); }
+  return [...by.values()].map(({ deck, k }) => `${deck.name}${k.size ? ' 第' + [...k].sort((a, b) => a - b).join('・') + '回' : ''}`).join('・');
 }
 const deckById = (id) => DECKS.find((d) => d.id === id);
 function tagsOf(deck) {
@@ -129,7 +161,7 @@ function viewHome() {
     const nNew = Math.min(c.fresh, store.newLeft(d.id, today));
     totalDue += c.due; totalNew += nNew;
     const pct = Math.round((c.mastered / Math.max(1, c.total)) * 100);
-    const cur = d.units.filter((u) => u.latest && u.kai != null).map((u) => `第${u.kai}回 ${esc(u.name)}`).join('・');
+    const cur = hasRange(d) ? esc(rangeText(d)) : d.units.filter((u) => u.latest && u.kai != null).map((u) => `第${u.kai}回 ${esc(u.name)}`).join('・');
     return `<a class="deck" href="#/deck/${d.id}" style="--c:${d.color}">
       <div class="deck-emoji">${d.emoji}</div>
       <div class="deck-body">
@@ -147,6 +179,7 @@ function viewHome() {
     </header>
     <div id="dailyArt">${dailyArtHtml()}</div>
     ${gameHeaderHtml(game(), store.derived.daily)}
+    ${resumeHtml()}
     <div class="home-grid">
     <section class="today">
       <div class="today-num">${todo}<small>まい</small></div>
@@ -163,6 +196,7 @@ function viewHome() {
     </section></div>
     ${nav('home')}`;
   bindConfirmOff();
+  bindResume();
   ensureDailyMsg();
   const on = document.getElementById('confirmOn');
   if (on) on.onclick = () => { if (confirm('確認モードにしますか？\n（まなが勉強するときは、かならず「やめる」を押してね）')) { store.setSetting('confirm', true); route(); } };
@@ -226,7 +260,7 @@ function viewDeck(id, tag = '') {
   const cards = filterCards(d, tag);
   const c = counts(cards, today);
   const nNew = Math.min(c.fresh, store.newLeft(d.id, today));
-  const chips = tags.length > 1 ? `<div class="chips">
+  const chips = hasRange(d) && !isParentRole() ? rangePickerHtml(d, today) : tags.length > 1 ? `<div class="chips">
       <a class="chip ${tag ? '' : 'on'}" href="#/deck/${d.id}">ぜんぶ</a>
       ${tags.map((t) => `<a class="chip ${t === tag ? 'on' : ''}" href="#/deck/${d.id}/${encodeURIComponent(t)}">${esc(t)} ${esc(unitOf(d, t))}</a>`).join('')}
     </div>` : (tags.length ? `<p class="small">${esc(tags[0])} ${esc(unitOf(d, tags[0]))}（前の回は「テスト前見直し」で）</p>` : '');
@@ -240,6 +274,7 @@ function viewDeck(id, tag = '') {
   $app.innerHTML = `
     ${confirmBanner()}
     <header class="bar-top" style="--c:${d.color}"><a href="${isParentRole() ? '#/cards' : '#/'}" class="back">‹</a><h1>${d.emoji} ${esc(d.name)}</h1></header>
+    ${(store.resumable?.d || []).includes(d.id) ? resumeHtml() : ''}
     ${chips}
     <section class="stat-row">
       <div><b>${c.due}</b><span>今日の学習</span></div>
@@ -258,6 +293,34 @@ function viewDeck(id, tag = '') {
     <p class="small src">${esc(d.source || '')}</p>
     ${nav(isParentRole() ? 'cards' : 'home')}`;
   bindConfirmOff();
+  bindResume();
+  bindRangePicker(d, tag);
+}
+function rangePickerHtml(d, today) {
+  const units = d.units.filter((u) => u.kai != null).slice().sort((a, b) => b.kai - a.kai);
+  const rows = units.map((u) => {
+    const c = counts(u.cards, today);
+    return `<button class="unit ${u.sel ? 'on' : ''}" data-rk="${u.kai}">
+      <span class="check">${u.sel ? '✅' : '⬜'}</span>
+      <span class="u-name">第${u.kai}回 ${esc(u.name)} ${u.latest ? '<span class="new-badge">さいしん</span>' : ''}</span>
+      <span class="u-meta">${u.cards.length}まい・今日の学習 <b>${c.due}</b>・新しい ${c.fresh}</span></button>`;
+  }).join('');
+  return `<section class="rangebox"><h2 class="sec">📚 やる回をえらぶ <small>（いくつでも・今日の学習もここから）</small></h2>
+    <div class="quick"><button class="btn soft mini" data-rq="latest">さいしんだけ</button><button class="btn soft mini" data-rq="all">ぜんぶの回</button></div>
+    <div class="units" id="rangeUnits">${rows}</div>
+    <p class="small">えらんだ回：<b id="rangeNow">${esc(rangeText(d))}</b>（つぎからも、この回で始まるよ）</p></section>`;
+}
+function bindRangePicker(d, tag) {
+  if (!hasRange(d) || isParentRole()) return;
+  const setK = (ks) => {
+    if (!ks.length) { toast('1つはえらんでね'); return; }
+    store.setRange(d.id, ks); applyRanges(); viewDeck(d.id, '');
+  };
+  $app.querySelectorAll('[data-rk]').forEach((b) => (b.onclick = () => {
+    const k = +b.dataset.rk, cur = rangeKais(d);
+    setK(cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]);
+  }));
+  $app.querySelectorAll('[data-rq]').forEach((b) => (b.onclick = () => setK(b.dataset.rq === 'all' ? d.units.filter((u) => u.kai != null).map((u) => u.kai) : d.units.filter((u) => u.latest).map((u) => u.kai))));
 }
 
 // ---------- テスト前見直し ----------
@@ -376,11 +439,27 @@ function startSession(deckIds, tag, cram) {
 if (['localhost', '127.0.0.1'].includes(location.hostname)) {
   window.__anki = {
     session: () => session,
+    store: () => store,
+    sync: () => cloud.sync(),
     start: (ids) => { const items = ids.map((id) => { for (const d of DECKS) { const c = d.allCards.find((x) => x.id === id); if (c) return { card: c, deck: d }; } return null; }).filter(Boolean); startWith(items, 'review', '#/'); },
   };
 }
-function startWith(items, kind, back) {
-  session = { items, i: 0, kind, done: 0, again: 0, total: items.length, back, engine: null, combo: 0, xp: 0, confirm: confirmMode(), game0: confirmMode() ? null : game() };
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const KIND_LABEL = { study: '今日の学習', cram: 'ぜんぶ練習', review: '見直し', mistake: 'まちがい復習' };
+function startWith(items, kind, back, resume = null) {
+  const cm = confirmMode();
+  // とちゅうの勉強があるのに新しく始めるときは、たしかめる（確認モードはとちゅうの勉強を変えない）
+  const old = store.resumable;
+  if (!resume && !cm && old && old.i > 0) {
+    if (!confirm(`とちゅうの勉強（${old.rg || KIND_LABEL[old.k] || ''}・${old.i}/${old.ids.length}まい）があるよ。\nそれをやめて、新しくはじめる？`)) return go('#/');
+    store.setInprog(null); cloud.schedule(1500);
+  }
+  const rg = resume?.rg || itemsRangeLabel(items);
+  const deckIds = [...new Set(items.map((x) => x.deck.id))];
+  session = { items, i: 0, kind, done: 0, again: 0, total: items.length, back, engine: null, combo: 0, xp: 0, confirm: cm, game0: cm ? null : game(),
+    sid: resume?.id || newId(), rg, deckIds, started: resume?.start || Date.now(),
+    sit: { id: newId(), s: Date.now(), d: deckIds, rg, k: kind, rs: !!resume } };
+  if (resume) Object.assign(session, { i: resume.i, done: resume.done || 0, again: resume.again || 0, combo: resume.combo || 0, xp: resume.xp || 0, total: resume.total || items.length });
   availableEngine(store.settings).then((e) => { if (session) { session.engine = e; if (e === 'gemini') warmAI(); if (session.phase === 'q') renderBottom(); } });
   renderCard();
 }
@@ -437,9 +516,11 @@ function renderCard() {
   // 社会・理科は、カードが出たら問題を読み上げる（1枚ずつ。前の読み上げは stopMedia で止めてある）
   if (autoReadDeck(deck.id)) speak(questionText(card, s.cur), { rate: ttsRate() });
 }
-/** 自動で読み上げる教科：社会・理科だけ。「🎤 声で回答する」が ON で、読み上げを OFF にしていないとき */
+/** 自動で読み上げる教科：社会・理科だけ（せっていで自動の読み上げを ON にしたとき） */
 const AUTO_READ_DECKS = ['shakai', 'rika'];
-function autoReadDeck(deckId) { return AUTO_READ_DECKS.includes(deckId) && voiceOn() && store.settings.ttsAuto !== false; }
+function autoReadDeck(deckId) { return AUTO_READ_DECKS.includes(deckId) && ttsAutoOn(); }
+/** 自動の読み上げ：せっていで「ON」にしたときだけ（はじめは OFF。「🎤 声で回答する」とは別） */
+function ttsAutoOn() { return store.settings.ttsAuto === true; }
 /** 読み上げる問題文（答えは読まない。書くカードは wq） */
 function questionText(card, c) { return c && c.writeMode && card.wq ? card.wq : card.q; }
 
@@ -455,7 +536,7 @@ function renderFace() {
   const sub = card.qsub || (big ? '読みと意味は？' : '');
   if (c.writeMode) q = `<div class="q">${nl(card.wq)}</div>${card.qsub && s.phase === 'q' ? `<div class="q-sub">${esc(card.qsub)}</div>` : ''}${s.hint ? `<div class="hint">💭 ${nl(card.whint)}</div>` : ''}`;
   else q = `<div class="q ${big ? 'yoji' : ''}">${nl(card.q)}</div>${sub && s.phase === 'q' ? `<div class="q-sub">${esc(sub)}</div>` : ''}${s.hint && card.hint ? `<div class="hint">💭 ${nl(card.hint)}</div>` : ''}`;
-  if (canSpeak()) q = `<button class="speak ${speechPending() ? 'needs-tap' : ''}" id="speakBtn" aria-label="読み上げ">🔊</button>` + q;
+  if (canSpeak()) q = `<button class="speak ${speechPending() && ttsAutoOn() ? 'needs-tap' : ''}" id="speakBtn" aria-label="読み上げ">🔊</button>` + q;
   let body = '';
   if (s.phase === 'checking') body = checkingHtml();
   if (c.oral && (s.phase === 'listening' || s.phase === 'judging' || s.phase === 'q') && c.said) body = `<div class="said">🎤 <span>${esc(c.said)}</span></div>`;
@@ -722,6 +803,46 @@ function startRedo() {
   refresh();
 }
 
+function saveInprog(s) {
+  if (!s || s.confirm) return;
+  if (s.i >= s.items.length) { store.setInprog(null); return; }
+  store.setInprog({ id: s.sid, k: s.kind, ids: s.items.map((x) => x.card.id), i: s.i, done: s.done, again: s.again, combo: s.combo, xp: s.xp, total: s.total, back: s.back, rg: s.rg, d: s.deckIds, start: s.started, dev: store.data.device });
+  cloud.schedule(300); // すぐ送る（タブを閉じても、ほかの端末でつづきから）
+}
+/** とちゅうの勉強を、つづきから（ほかの端末で始めた分も） */
+function resumeSession() {
+  const p = store.resumable;
+  if (!p) return go('#/');
+  const find = (id) => { for (const d of DECKS) { const c = d.allCards.find((x) => x.id === id); if (c) return { card: c, deck: d }; } return null; };
+  const all = p.ids.map(find);
+  const items = all.filter(Boolean);
+  const i = all.slice(0, p.i).filter(Boolean).length; // カードがなくなっていたら、そのぶんずらす
+  if (i >= items.length) { store.setInprog(null); cloud.schedule(500); toast('つづきのカードが見つからなかったよ'); return go('#/'); }
+  startWith(items, p.k || 'study', p.back || '#/', { ...p, i });
+}
+function resumeHtml() {
+  const p = store.resumable;
+  if (!p || confirmMode()) return '';
+  const emo = (p.d || []).map((id) => deckById(id)?.emoji || '').join('');
+  const when = p.t ? fmtDate(p.t) + ' ' + fmtHM(p.t) : '';
+  return `<section class="resume">
+    <div class="rs-h">⏸️ とちゅうの勉強があるよ</div>
+    <div class="rs-b">${emo} <b>${esc(p.rg || '')}</b><br><small>${esc(KIND_LABEL[p.k] || '')}・<b>${p.i}</b>/${p.ids.length}まい おわった・${esc(when)}</small></div>
+    <div class="bar"><span style="width:${Math.round((p.i / Math.max(1, p.ids.length)) * 100)}%"></span></div>
+    <div class="rs-btns"><a class="btn big primary" href="#/resume" id="resumeGo">▶️ つづきから</a><button class="btn soft mini" id="resumeDrop">すてる</button></div></section>`;
+}
+function bindResume() {
+  const b = document.getElementById('resumeDrop');
+  if (b) b.onclick = () => { if (confirm('とちゅうの勉強をすてる？（ここまでの記録は残るよ）')) { store.setInprog(null); cloud.schedule(300); route(); } };
+}
+// 時刻はいつも日本時間で
+const JST_HM = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false });
+const JST_MD = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric' });
+const fmtHM = (t) => JST_HM.format(new Date(t));
+const fmtDate = (t) => JST_MD.format(new Date(t));
+const mins = (ms) => Math.max(1, Math.round((ms || 0) / 60000));
+const minText = (ms) => ((ms || 0) < 60000 ? '<b>1</b>分未満' : `<b>${mins(ms)}</b>分`);
+
 function setupRedoPad() {
   const s = session;
   const host = $('#pad');
@@ -734,12 +855,16 @@ function doGrade(g) {
   const { card, deck } = s.items[s.i];
   const miss = c.override ? [] : [...c.miss];
   stopSpeak();
-  if (!s.confirm) store.grade(card, deck.id, g, { mode: logMode(), miss, auto: !!c.result || !!c.judge });
+  if (!s.confirm) {
+    store.grade(card, deck.id, g, { mode: logMode(), miss, auto: !!c.result || !!c.judge });
+    store.logCard(s.sit, { g, cardMs: Date.now() - c.start }); // 勉強の記録（時刻・時間・まい数・正解）
+  }
   s.done++;
   s.combo = g === 'again' ? 0 : s.combo + 1;
   if (!s.confirm) celebrate(g);
   if (g === 'again' || (s.kind === 'mistake' && g === 'hard')) { s.again++; s.items.splice(Math.min(s.items.length, s.i + 4), 0, s.items[s.i]); }
   s.i++;
+  if (!s.confirm) saveInprog(s); // 1枚ごとに、とちゅうの勉強を保存（ほかの端末でもつづきから）
   if (navigator.vibrate) try { navigator.vibrate(8); } catch (e) {}
   renderCard();
 }
@@ -831,7 +956,7 @@ async function startListen() {
   c.judgeToken = null;
   if (session !== s || s.cur !== c) return;
   s.phase = 'oral'; refresh();
-  if (c.judge && store.settings.ttsAuto !== false) speak(c.judge.comment, { rate: ttsRate() });
+  if (c.judge && ttsAutoOn()) speak(c.judge.comment, { rate: ttsRate() });
 }
 function ensurePad(cells) {
   const s = session;
@@ -885,7 +1010,7 @@ function renderDone() {
       ${s.kind === 'review' ? '<a class="btn big soft" href="#/review">📝 見直しにもどる</a>' : ''}${s.kind === 'mistake' ? '<a class="btn big soft" href="#/mistakes" id="homeMistakes">🔁 まちがえた問題にもどる</a>' : ''}
       <a class="btn big soft" href="#/progress">📊 進み具合を見る</a>
     </main>`;
-  if (!s.confirm) confetti(1.4);
+  if (!s.confirm) { confetti(1.4); store.setInprog(null); }
   session = null;
   cloud.schedule(500);
 }
@@ -941,10 +1066,17 @@ function progressHtml(st) {
     </div></div>`;
 }
 
+function recentLogHtml(slog) {
+  const list = Object.values(slog || {}).filter((e) => e.s).sort((a, b) => b.s - a.s).slice(0, 12);
+  return `<section class="form"><h2 class="sec">📒 勉強の記録 <small>（さいきん・日本時間）</small></h2>
+    ${list.length ? list.map((e) => logRowHtml(e, { date: true })).join('') : '<p class="small">まだ記録がないよ。勉強すると、始めた時刻と時間がここに出るよ。</p>'}
+    <p class="small">くわしくは「達成シール」の📅カレンダーで、日にちをタップしてね。</p></section>`;
+}
 function viewProgress() {
   $app.innerHTML = `
     <header class="bar-top"><h1>📊 進み具合</h1></header>
     ${progressHtml(stats())}
+    ${recentLogHtml(store.data.slog)}
     <p class="small">☁️ 記録はクラウドにも保存されていて、ママのスマホからいつでも見られます。</p>
     ${nav('progress')}`;
 }
@@ -964,9 +1096,10 @@ async function viewLive() {
       box.innerHTML = `<p class="snap-time">${last ? `最後に勉強した日 ${esc(last)}` : 'まだ記録がありません'}</p>
         ${src.dmsg && src.dmsg.day === dayIndex() ? sceneHtml(sceneFor(dayIndex(), new Date().getMonth() + 1), esc(src.dmsg.text)) : ''}
         ${src.game ? gameHeaderHtml(src.game, src.daily) : ''}
-        <section class="form"><h2 class="sec">📅 勉強カレンダー</h2>${calendarHtml(src.daily)}</section>
-        ${progressHtml(st)}`;
-      const redoCal = () => { const cb = box.querySelector('.calbox'); if (cb) { cb.outerHTML = calendarHtml(src.daily); bindCalendar(redoCal); } };
+        <section class="form"><h2 class="sec">📅 勉強カレンダー</h2>${calendarHtml(src.daily, src.slog || {})}</section>
+        ${progressHtml(st)}
+        ${recentLogHtml(src.slog || {})}`;
+      const redoCal = () => { const cb = box.querySelector('.calbox'); if (cb) { cb.outerHTML = calendarHtml(src.daily, src.slog || {}); bindCalendar(redoCal); } };
       bindCalendar(redoCal);
     }, (e) => { const box = document.getElementById('live'); if (box) box.innerHTML = `<p class="done-msg">読みこめませんでした（${esc(errText(e))}）</p>`; });
   } catch (e) { $('#live').innerHTML = `<p class="done-msg">つながりませんでした（${esc(errText(e))}）</p>`; }
@@ -976,7 +1109,23 @@ async function viewLive() {
 let LIVE = null;      // 保護者の画面：クラウドから読んだ記録
 let ADULT_OPEN = false;
 let CAL_OFF = 0;      // カレンダー：今月から何か月前
-function calendarHtml(daily = {}) {
+let CAL_DAY = null;   // カレンダーでえらんだ日（null＝今日）
+/** その日の勉強の記録（時刻・分・教科・はんい・まい数・正解） */
+function dayLog(slog, day) { return Object.entries(slog || {}).map(([id, e]) => ({ id, ...e })).filter((e) => e.s && dayIndex(new Date(e.s)) === day).sort((a, b) => a.s - b.s); }
+function logRowHtml(e, { date = false } = {}) {
+  const emo = (e.d || []).map((id) => deckById(id)?.emoji || '').join('');
+  return `<div class="lrow"><span class="lt">${date ? fmtDate(e.s) + ' ' : ''}${fmtHM(e.s)}〜${fmtHM(e.e || e.s)}</span><span class="lm">${minText(e.ms)}</span>
+    <span class="ls">${emo} ${esc(e.rg || '')}<small>${esc(KIND_LABEL[e.k] || '')}${e.rs ? '（つづき）' : ''}</small></span>
+    <span class="ln">${e.n || 0}まい・⭕${e.ok || 0}</span></div>`;
+}
+function dayLogHtml(slog, day) {
+  const list = dayLog(slog, day);
+  const [y, m, d] = dayToISO(day).split('-');
+  const total = list.reduce((a, e) => a + (e.ms || 0), 0);
+  return `<div class="daylog"><h3 class="sec small-h">🕒 ${+m}月${+d}日の勉強 ${list.length ? `<small>ぜんぶで ${minText(total)}・${list.reduce((a, e) => a + (e.n || 0), 0)}まい</small>` : ''}</h3>
+    ${list.length ? list.map((e) => logRowHtml(e)).join('') : '<p class="small">この日の記録はないよ</p>'}</div>`;
+}
+function calendarHtml(daily = {}, slog = null) {
   const now = new Date(); const ym = new Date(now.getFullYear(), now.getMonth() - CAL_OFF, 1);
   const cells = monthCells(ym.getFullYear(), ym.getMonth(), daily, dayIndex());
   const si = streakInfo(daily, dayIndex());
@@ -984,12 +1133,14 @@ function calendarHtml(daily = {}) {
   return `<div class="calbox">
     <div class="cal-h"><button class="btn soft mini" data-cal="1">‹</button><b>${ym.getFullYear()}年${ym.getMonth() + 1}月</b><button class="btn soft mini" data-cal="-1" ${CAL_OFF ? '' : 'disabled'}>›</button></div>
     <div class="cal">${['日', '月', '火', '水', '木', '金', '土'].map((w) => `<div class="cal-w">${w}</div>`).join('')}
-    ${cells.map((c) => !c ? '<div></div>' : `<div class="cal-d ${c.studied ? 'st' : ''} ${c.part ? 'pt' : ''} ${c.today ? 'td' : ''} ${c.future ? 'fu' : ''}" title="${c.n}まい"><span class="cal-n">${c.date}</span>${c.studied ? `<span class="cal-s">${stickerFor(c.day)}</span>` : c.part ? '<span class="cal-s small-dot">・</span>' : ''}</div>`).join('')}</div>
+    ${cells.map((c) => !c ? '<div></div>' : `<div class="cal-d ${c.studied ? 'st' : ''} ${c.part ? 'pt' : ''} ${c.today ? 'td' : ''} ${c.future ? 'fu' : ''} ${slog && c.day === (CAL_DAY ?? dayIndex()) ? 'sel' : ''}" ${slog && !c.future ? `data-day="${c.day}"` : ''} title="${c.n}まい"><span class="cal-n">${c.date}</span>${c.studied ? `<span class="cal-s">${stickerFor(c.day)}</span>` : c.part ? '<span class="cal-s small-dot">・</span>' : ''}</div>`).join('')}</div>
     <div class="cal-f"><span>🔥 いま <b>${si.streak}</b>日れんぞく</span><span>🏆 さいこう <b>${si.best}</b>日</span><span>この月 <b>${cnt}</b>日</span></div>
-    <p class="small">「勉強した日」＝その日に ${STUDY_MIN}まい以上ふりかえった日（日本時間）。${STICKER_DAYS}日れんぞくで シールが1まいもらえるよ。</p></div>`;
+    <p class="small">「勉強した日」＝その日に ${STUDY_MIN}まい以上ふりかえった日（日本時間）。${STICKER_DAYS}日れんぞくで シールが1まいもらえるよ。${slog ? '日にちをタップすると、その日の勉強の時刻と時間が見られるよ。' : ''}</p>
+    ${slog ? dayLogHtml(slog, CAL_DAY ?? dayIndex()) : ''}</div>`;
 }
 function bindCalendar(redo) {
   $app.querySelectorAll('[data-cal]').forEach((b) => (b.onclick = () => { CAL_OFF = Math.max(0, CAL_OFF + +b.dataset.cal); redo(); }));
+  $app.querySelectorAll('[data-day]').forEach((b) => (b.onclick = () => { CAL_DAY = +b.dataset.day; redo(); }));
 }
 function stickerHtml(daily) {
   const si = streakInfo(daily || {}, dayIndex());
@@ -1074,7 +1225,7 @@ function viewRewards() {
       ${g ? gameHeaderHtml(g, daily) : ''}
       <div class="prog-grid"><div>
       ${stickerHtml(daily)}
-      <section class="form"><h2 class="sec">📅 勉強カレンダー</h2>${calendarHtml(daily)}</section>
+      <section class="form"><h2 class="sec">📅 勉強カレンダー</h2>${calendarHtml(daily, isParentRole() ? (LIVE?.slog || {}) : store.data.slog)}</section>
       </div><div>
       <section class="form" id="rewardsBox">${rewardsHtml(daily)}</section>
       ${badgesHtml(g)}
@@ -1159,8 +1310,8 @@ function viewSettings() {
       <h2 class="sec">🎯 目標・読み上げ</h2>
       <label>1日の目標（まい）
         <select id="goal">${[10, 15, 20, 30, 40].map((n) => opt(n, s.goal || 20, n + 'まい')).join('')}</select></label>
-      <label>問題を読み上げる（社会・理科／「🎤 声で回答する」が ON のとき）
-        <select id="tts">${opt('on', s.ttsAuto === false ? 'off' : 'on', 'ON')}${opt('off', s.ttsAuto === false ? 'off' : 'on', 'OFF（🔊を押したときだけ）')}</select></label>
+      <label>問題を自動で読み上げる（社会・理科）
+        <select id="tts">${opt('off', s.ttsAuto === true ? 'on' : 'off', 'OFF（🔊を押したときだけ読む）')}${opt('on', s.ttsAuto === true ? 'on' : 'off', 'ON（カードが出たら読む）')}</select></label>
       <label class="switch-row">🎤 声で回答する
         <span class="switch"><input type="checkbox" id="voiceAns" ${voiceOn() ? 'checked' : ''}><span class="slider"></span></span></label>
       <p class="small">OFF にすると、声で答えるカードは「こたえを見る」→ 自分で答え合わせ になります（マイクは使いません）。</p>
@@ -1281,6 +1432,7 @@ async function route() {
     case 'study': return parts[1] === 'all' ? startSession(DECKS.map((d) => d.id), '', false) : startSession([parts[1]], parts[2] || '', false);
     case 'cram': return startSession([parts[1]], parts[2] || '', true);
     case 'review': return viewReviewPicker();
+    case 'resume': return resumeSession();
     case 'mistakes': return viewMistakes();
     case 'progress': return viewProgress();
     case 'rewards': return viewRewards();
@@ -1308,8 +1460,17 @@ document.addEventListener('keydown', (e) => {
   window.addEventListener('online', () => cloud.sync());
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') cloud.sync(); });
   window.addEventListener('hashchange', () => { if (USER) route(); });
+  // タブを閉じる・別のアプリへ：とちゅうの勉強と記録をすぐ送る
+  window.addEventListener('pagehide', () => { if (session && !session.confirm && session.cur) saveInprog(session); cloud.sync(); });
+  // ほかの端末で変わった（とちゅうの勉強・はんい・記録）→ 勉強中でなければ画面を新しくする
+  cloud.onRemote = (w) => {
+    if (w.sel) applyRanges();
+    if (session || !USER || !DECKS.length) return;
+    const h = location.hash || '#/';
+    if (h === '#/' || h === '#' || (w.sel && h.startsWith('#/deck/')) || (w.slog && /^#\/(rewards|progress)/.test(h))) route();
+  };
   armSpeechGestures(); // iPad：タップのたびに読み上げの準備。始められなかった問題は次のタップで読む
-  onSpeechBlocked((on) => { const b = document.getElementById('speakBtn'); if (b) b.classList.toggle('needs-tap', on); });
+  onSpeechBlocked((on) => { const b = document.getElementById('speakBtn'); if (b) b.classList.toggle('needs-tap', on && ttsAutoOn()); });
   try {
     await loadFirebase();
     await afterLogin();

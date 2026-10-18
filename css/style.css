@@ -384,3 +384,23 @@ small { font-size: .78em; color: var(--mute); font-weight: normal; }
 .speak.needs-tap { border-color: var(--pink, #ff8fb1); box-shadow: 0 0 0 0 rgba(255, 143, 177, .7); animation: tapPulse 1.4s ease-out infinite; position: relative; }
 .speak.needs-tap::after { content: 'タップで読むよ'; position: absolute; right: 0; top: 46px; white-space: nowrap; font-size: 11px; color: #d1477a; font-weight: 700; }
 @keyframes tapPulse { 0% { box-shadow: 0 0 0 0 rgba(255, 143, 177, .7); } 80%, 100% { box-shadow: 0 0 0 12px rgba(255, 143, 177, 0); } }
+/* とちゅうの勉強（つづきから） */
+.resume { background: #fff; border: 3px solid #ffc2d4; border-radius: 20px; padding: 14px 16px; margin: 10px 0 14px; box-shadow: 0 4px 0 #ffd9e4; }
+.resume .rs-h { font-weight: 800; color: #d1477a; margin-bottom: 4px; }
+.resume .rs-b { margin-bottom: 8px; line-height: 1.5; }
+.resume .rs-btns { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.resume .rs-btns .btn.big { flex: 1; text-align: center; }
+/* はんい（やる回をえらぶ） */
+.rangebox { margin: 6px 0 12px; }
+.rangebox .unit .u-meta b { color: #d1477a; }
+/* 勉強の記録（時刻つき） */
+.daylog { margin-top: 10px; }
+.lrow { display: grid; grid-template-columns: auto auto 1fr; grid-template-areas: 't m n' 's s s'; gap: 2px 10px; align-items: center; padding: 8px 12px; border-radius: 12px; background: #fff7fa; margin: 6px 0; font-size: 14px; }
+.lrow .lt { grid-area: t; } .lrow .lm { grid-area: m; } .lrow .ln { grid-area: n; justify-self: end; } .lrow .ls { grid-area: s; }
+.lrow .ls small { display: inline; margin-left: 6px; }
+.lrow .lt { font-variant-numeric: tabular-nums; color: #7a5a6c; white-space: nowrap; }
+.lrow .lm { white-space: nowrap; } .lrow .lm b { font-size: 17px; color: #d1477a; }
+.lrow .ls small { display: block; color: #9a8aa0; font-size: 11px; }
+.lrow .ln { white-space: nowrap; color: #7a5a6c; }
+.cal-d[data-day] { cursor: pointer; }
+.cal-d.sel { outline: 3px solid #ff8fb1; outline-offset: -3px; }
