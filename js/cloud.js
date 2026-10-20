@@ -5,6 +5,7 @@
 import { firebaseConfig, appCheckSiteKey } from './firebase-config.js';
 import { mergeStates, mergeReviews } from './merge.js';
 import { mergeSlog, mergeSel, pickInprog } from './store.js';
+import { mergeSeen } from './announce.js';
 
 export const SDK_VERSION = '13.0.0';
 const CDN = `https://www.gstatic.com/firebasejs/${SDK_VERSION}/`;
@@ -178,6 +179,10 @@ export class CloudSync {
         data.sel = msel.sel;
         const mi = pickInprog(data.inprog, remote.inprog);
         if (mi.changed) { data.inprog = mi.inprog; data.inprogDirty = false; }
+        // おしらせ：どこかの端末で見たら、見たことにする
+        const ma = mergeSeen(data.ann, remote.ann);
+        data.ann = ma.ann;
+        if (ma.changed && this.onAnn) try { this.onAnn(); } catch {}
         const otherChanged = ms.added > 0 || msel.changed || mi.changed;
         if (msel.changed && this.onSel) this.onSel();
         const m = mergeStates(data.states, remote.states || {});
@@ -209,6 +214,7 @@ export class CloudSync {
         const slogIds = [...(data.slogDirty || [])];
         const slogPush = Object.fromEntries(slogIds.filter((id) => data.slog[id]).map((id) => [id, data.slog[id]]));
         const selPush = data.selDirty ? data.sel : null;
+        const annPush = data.annDirty ? data.ann : null;
         const statesPush = {};
         for (const id of m.push) statesPush[id] = data.states[id];
         // 注意：merge:true で空の {} を送ると states 全体が {} に上書きされるので、送るものがある時だけ入れる
@@ -221,12 +227,14 @@ export class CloudSync {
           ...(data.dmsg ? { dmsg: data.dmsg } : {}),
           ...(Object.keys(slogPush).length ? { slog: slogPush } : {}),
           ...(selPush ? { sel: selPush } : {}),
+          ...(annPush && Object.keys(annPush).length ? { ann: annPush } : {}),
           nickname: store.settings.nickname || '',
           updatedAt: fs.serverTimestamp(),
           clientAt: Date.now(),
         }, { merge: true });
         data.slogDirty = (data.slogDirty || []).filter((id) => !slogIds.includes(id) || slogPush[id] !== data.slog[id]);
         if (selPush && selPush === data.sel) data.selDirty = false;
+        if (annPush && annPush === data.ann) data.annDirty = false;
         // とちゅうの勉強は、まるごと入れかえる（merge だと前の中身が残るので mergeFields）
         if (data.inprogDirty && data.inprog) {
           const sent = data.inprog;
@@ -246,7 +254,7 @@ export class CloudSync {
         this.running = null;
         // 同期しているあいだに答えた分（とちゅうの勉強・記録）は、すぐもう一度送る
         const dd = this.store.data;
-        if (this.status === 'ok' && (dd.inprogDirty || (dd.slogDirty || []).length || dd.pending.length || dd.selDirty)) this.schedule(800);
+        if (this.status === 'ok' && (dd.inprogDirty || (dd.slogDirty || []).length || dd.pending.length || dd.selDirty || dd.annDirty)) this.schedule(800);
       }
     })();
     return this.running;

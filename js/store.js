@@ -14,7 +14,9 @@ function emptyData() {
     slog: {},         // 勉強の記録（1回すわって勉強した分ごと）{ id: { s, e, ms, d, rg, k, n, ok, rs } }
     slogDirty: [],    // まだクラウドに送っていない slog の id
     inprog: null,     // とちゅうの勉強 { id, k, ids, i, done, again, combo, xp, total, back, rg, t } か { t, none: 1 }
-    inprogDirty: false };
+    inprogDirty: false,
+    ann: {},          // 見たおしらせ { id: 時刻 }
+    annDirty: false };
 }
 
 /** v1（日ごとの集計だけ）→ v2（1回ごとの記録） */
@@ -32,7 +34,7 @@ export function migrate(d) {
     if ((d.settings || {}).recogV !== 2) { settings.recognition = 'on'; settings.recogV = 2; }
     // 自動の読み上げは「いらない」ことになった → 前に ON だった端末も一度だけ OFF にする（あとで ON にすればそのまま）
     if ((d.settings || {}).ttsV !== 2) { settings.ttsAuto = false; settings.ttsV = 2; }
-    return { ...e, ...d, settings, sel: d.sel || {}, slog: d.slog || {}, slogDirty: d.slogDirty || [], inprog: d.inprog || null, inprogDirty: !!d.inprogDirty };
+    return { ...e, ...d, settings, sel: d.sel || {}, slog: d.slog || {}, slogDirty: d.slogDirty || [], inprog: d.inprog || null, inprogDirty: !!d.inprogDirty, ann: d.ann || {}, annDirty: !!d.annDirty };
   }
   return emptyData();
 }
@@ -54,6 +56,11 @@ export class Store {
   save() { return this.adapter.save(this.data); }
   get settings() { return this.data.settings; }
   state(id) { return this.data.states[id] || null; }
+  /** おしらせを見た（記録して、クラウドに送る印をつける） */
+  markAnnSeen(id, now = Date.now()) {
+    if (!id || this.data.ann[id]) return false;
+    this.data.ann = { ...this.data.ann, [id]: now }; this.data.annDirty = true; this.save(); return true;
+  }
 
   /** 集計（キャッシュつき） */
   get derived() {

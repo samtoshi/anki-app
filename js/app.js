@@ -1,3 +1,4 @@
+import { pendingAnnouncements } from './announce.js';
 import { GRADES, dayIndex, dayToISO, previewLabel, buildQueue, cardStatus, isDue } from './srs.js';
 import { Store } from './store.js';
 import { computeStats } from './stats.js';
@@ -198,8 +199,50 @@ function viewHome() {
   bindConfirmOff();
   bindResume();
   ensureDailyMsg();
+  maybeAnnounce();
   const on = document.getElementById('confirmOn');
   if (on) on.onclick = () => { if (confirm('確認モードにしますか？\n（まなが勉強するときは、かならず「やめる」を押してね）')) { store.setSetting('confirm', true); route(); } };
+}
+
+// ---------- おしらせ（うさぎから・1回だけ） ----------
+// まな（learner）がホームを開いたときだけ。確認モード・ママ（見るだけ）では出さない＝見たことにもしない
+let annBusy = false;
+const onHome = () => { const h = location.hash || '#/'; return h === '#/' || h === '#'; };
+async function maybeAnnounce() {
+  if (annBusy || ROLE !== 'learner' || confirmMode() || document.getElementById('annPop')) return;
+  const list = CONTENT?.manifest?.announcements;
+  if (!pendingAnnouncements(list, store.data.ann).length) return;
+  annBusy = true;
+  try {
+    // 先にクラウドを読む（ほかの端末でもう見ていたら出さない）
+    const t0 = Date.now();
+    while (!['ok', 'offline', 'error'].includes(cloud.status) && Date.now() - t0 < 6000) await new Promise((r) => setTimeout(r, 200));
+    if (cloud.running) await cloud.running.catch(() => {});
+  } finally { annBusy = false; }
+  showNextAnnouncement();
+}
+function showNextAnnouncement() {
+  if (session || !onHome() || ROLE !== 'learner' || confirmMode() || document.getElementById('annPop')) return;
+  const a = pendingAnnouncements(CONTENT?.manifest?.announcements, store.data.ann)[0];
+  if (!a) return;
+  const nick = esc(store.settings.nickname || '');
+  const box = document.createElement('div');
+  box.id = 'annPop'; box.className = 'ann-pop'; box.dataset.id = a.id;
+  box.innerHTML = `<div class="ann-card" role="dialog" aria-label="おしらせ">
+      <button class="ann-x" id="annX" aria-label="とじる">✕</button>
+      <div class="ann-bunny">🐰</div>
+      <div class="ann-bubble"><div class="ann-title">📣 おしらせ${nick ? `（${nick}へ）` : ''}</div>
+        <p class="ann-text">${nl(a.text)}</p></div>
+      <button class="btn big primary" id="annOk">わかった！</button>
+    </div>`;
+  document.body.appendChild(box);
+  // 出したら「見た」にする（ほかの端末では、もう出ない）
+  store.markAnnSeen(a.id);
+  cloud.schedule(300);
+  const close = () => { box.remove(); setTimeout(showNextAnnouncement, 250); };
+  box.querySelector('#annOk').onclick = close;
+  box.querySelector('#annX').onclick = close;
+  box.onclick = (e) => { if (e.target === box) close(); };
 }
 
 // ---------- 今日の絵・ひとこと ----------
@@ -447,6 +490,7 @@ if (['localhost', '127.0.0.1'].includes(location.hostname)) {
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const KIND_LABEL = { study: '今日の学習', cram: 'ぜんぶ練習', review: '見直し', mistake: 'まちがい復習' };
 function startWith(items, kind, back, resume = null) {
+  document.getElementById('annPop')?.remove(); // 勉強をはじめたら、おしらせはしまう（もう見たことになっている）
   const cm = confirmMode();
   // とちゅうの勉強があるのに新しく始めるときは、たしかめる（確認モードはとちゅうの勉強を変えない）
   const old = store.resumable;
@@ -1459,7 +1503,7 @@ document.addEventListener('keydown', (e) => {
   cloud.onStatus(() => { if ((location.hash || '').startsWith('#/settings')) renderCloudBox(); });
   window.addEventListener('online', () => cloud.sync());
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') cloud.sync(); });
-  window.addEventListener('hashchange', () => { if (USER) route(); });
+  window.addEventListener('hashchange', () => { const p = document.getElementById('annPop'); if (p && !onHome()) p.remove(); if (USER) route(); });
   // タブを閉じる・別のアプリへ：とちゅうの勉強と記録をすぐ送る
   window.addEventListener('pagehide', () => { if (session && !session.confirm && session.cur) saveInprog(session); cloud.sync(); });
   // ほかの端末で変わった（とちゅうの勉強・はんい・記録）→ 勉強中でなければ画面を新しくする

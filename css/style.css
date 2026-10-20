@@ -404,3 +404,16 @@ small { font-size: .78em; color: var(--mute); font-weight: normal; }
 .lrow .ln { white-space: nowrap; color: #7a5a6c; }
 .cal-d[data-day] { cursor: pointer; }
 .cal-d.sel { outline: 3px solid #ff8fb1; outline-offset: -3px; }
+
+/* おしらせ（うさぎから） */
+.ann-pop { position: fixed; inset: 0; z-index: 60; background: rgba(90,70,96,.35); display: flex; align-items: center; justify-content: center; padding: 20px; animation: annFade .25s ease-out; }
+.ann-card { position: relative; width: min(440px, 100%); background: #fff; border-radius: 28px; border: 3px solid var(--pink-l); box-shadow: 0 8px 0 var(--pink-l), 0 14px 30px rgba(90,70,96,.18); padding: 18px 20px 20px; text-align: center; animation: annPop .38s cubic-bezier(.2,1.4,.4,1); }
+.ann-x { position: absolute; z-index: 2; top: 10px; right: 12px; width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--pink-l); color: var(--pink-d); font-size: 18px; font-weight: bold; cursor: pointer; }
+.ann-bunny { font-size: 64px; line-height: 1; animation: bob 2.4s ease-in-out infinite; }
+.ann-bubble { position: relative; margin: 14px 0 16px; background: #fff0f5; border: 2px solid var(--pink); border-radius: 20px; padding: 12px 16px; }
+.ann-bubble::before { content: ''; position: absolute; top: -11px; left: 50%; transform: translateX(-50%); border: 10px solid transparent; border-top: 0; border-bottom-color: var(--pink); }
+.ann-bubble::after { content: ''; position: absolute; top: -8px; left: 50%; transform: translateX(-50%); border: 8px solid transparent; border-top: 0; border-bottom-color: #fff0f5; }
+.ann-title { font-size: 14px; color: var(--pink-d); font-weight: bold; }
+.ann-text { margin: 4px 0 0; font-size: 21px; font-weight: bold; color: var(--ink); }
+@keyframes annFade { from { opacity: 0; } }
+@keyframes annPop { from { transform: scale(.7); opacity: 0; } }

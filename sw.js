@@ -1,9 +1,9 @@
 // オフラインでも使えるようにするサービスワーカー
-const VERSION = 'v24';
+const VERSION = 'v25';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest',
   'js/app.js', 'js/srs.js', 'js/store.js', 'js/sync.js', 'js/stats.js',
-  'js/merge.js', 'js/review.js', 'js/grade.js', 'js/handwriting.js', 'js/recognize.js', 'js/cloud.js', 'js/game.js', 'js/voice.js', 'js/tutor.js', 'js/art.js', 'js/cells.js', 'js/dailymsg.js', 'js/firebase-config.js',
+  'js/merge.js', 'js/review.js', 'js/grade.js', 'js/handwriting.js', 'js/recognize.js', 'js/cloud.js', 'js/game.js', 'js/voice.js', 'js/tutor.js', 'js/art.js', 'js/cells.js', 'js/dailymsg.js', 'js/announce.js', 'js/firebase-config.js',
   'icons/icon-192.png', 'icons/apple-touch-icon.png',
 ];
 self.addEventListener('install', (e) => {
