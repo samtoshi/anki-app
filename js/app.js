@@ -79,6 +79,25 @@ async function loadDecks() {
   });
   applyRanges();
 }
+/** 前に読んだカードを出しているとき（ネットにつながらなかった）：ホームに出すおしらせ */
+function staleBanner() {
+  if (!CONTENT?.offline) return '';
+  const d = new Date(CONTENT.cachedAt || CONTENT.at || Date.now());
+  return `<div class="stale-banner" id="staleBanner">📡 ネットにつながらなかったので、前に読んだカード（${d.getMonth() + 1}月${d.getDate()}日）を出しています。<button class="btn soft mini" id="reloadContent">もう一度よみこむ</button></div>`;
+}
+let refreshing = false;
+/** カードを読みなおす（勉強中はしない）。新しく読めたらホーム・デッキの画面を新しくする */
+async function refreshContent(force = false) {
+  if (refreshing || session || !USER || !CONTENT) return;
+  if (!force && !CONTENT.offline && Date.now() - (CONTENT.at || 0) < 30 * 60e3) return;
+  refreshing = true;
+  try {
+    await loadDecks();
+    const h = location.hash || '#/';
+    if (!session && (onHome() || h.startsWith('#/deck/'))) route();
+  } catch (e) { console.warn('refreshContent', e); }
+  finally { refreshing = false; }
+}
 // ---------- はんい（社会・理科：どの回をやるか。いくつでも。教科ごとに覚えて、ほかの端末ともそろえる） ----------
 const RANGE_DECKS = ['shakai', 'rika'];
 const hasRange = (d) => RANGE_DECKS.includes(d.id) && d.units.filter((u) => u.kai != null).length > 1;
@@ -174,6 +193,7 @@ function viewHome() {
   const todo = totalDue + totalNew;
   $app.innerHTML = `
     ${confirmBanner()}
+    ${staleBanner()}
     <header class="hero">
       <div class="mascot">🐰</div>
       <p class="greet">${greeting()}</p>
@@ -198,6 +218,8 @@ function viewHome() {
     ${nav('home')}`;
   bindConfirmOff();
   bindResume();
+  const rb = document.getElementById('reloadContent');
+  if (rb) rb.onclick = () => { rb.disabled = true; rb.textContent = 'よみこみ中…'; refreshContent(true).finally(() => { if (CONTENT?.offline) location.reload(); }); };
   ensureDailyMsg();
   maybeAnnounce();
   const on = document.getElementById('confirmOn');
@@ -1501,8 +1523,9 @@ document.addEventListener('keydown', (e) => {
   cloud.gameSummary = () => { const g = game(); return { v: 1, xp: g.xp, level: g.level, today: g.today, goal: g.goal, streak: g.streak, best: g.best, maxCombo: g.maxCombo, total: g.total, badges: g.badges, masteredUnits: g.masteredUnits, unitNames: g.unitNames, at: Date.now() }; };
   store.onChange(() => cloud.schedule());
   cloud.onStatus(() => { if ((location.hash || '').startsWith('#/settings')) renderCloudBox(); });
-  window.addEventListener('online', () => cloud.sync());
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') cloud.sync(); });
+  window.addEventListener('online', () => { cloud.sync(); refreshContent(); });
+  // ひらきっぱなしの端末でも、もどってきたら新しいカードを読む（前の分を出しているとき・30分以上たったとき）
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') cloud.sync(); else refreshContent(); });
   window.addEventListener('hashchange', () => { const p = document.getElementById('annPop'); if (p && !onHome()) p.remove(); if (USER) route(); });
   // タブを閉じる・別のアプリへ：とちゅうの勉強と記録をすぐ送る
   window.addEventListener('pagehide', () => { if (session && !session.confirm && session.cur) saveInprog(session); cloud.sync(); });

@@ -269,6 +269,7 @@ small { font-size: .78em; color: var(--mute); font-weight: normal; }
 /* 確認モード */
 .confirm-banner { background: #e8f4ff; border: 2px dashed #7cc8ff; color: #2d6ea3; border-radius: 16px; padding: 8px 12px; margin: 10px 0; font-weight: bold; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .confirm-banner.slim { margin: 0 0 4px; padding: 3px 10px; font-size: 13px; }
+.stale-banner { background: #fff4e0; border: 2px solid #ffb86b; color: #8a4b00; border-radius: 16px; padding: 8px 12px; margin: 10px 0; font-weight: bold; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 
 /* 達成シール・シール交換 */
 .combo { min-width: 54px; text-align: right; font-weight: 900; color: #ff7a3d; font-size: 18px; }

@@ -78,28 +78,60 @@ export async function signOut() {
 
 // ---------- カードの中身 ----------
 
-/** content/manifest とカードを読む。オフラインのときは前回の分を使う */
+/**
+ * content/manifest とカードを読む。読めないときだけ前回の分を使う（offline: true と、いつの分か cachedAt をつける）
+ * - うまく読めないときは、すこし待ってもう一度だけ読む
+ * - 1つの回だけ読めないときは、その回だけ前回の分を使う（ほかの回は新しいまま）
+ * - この端末に保存できない（いっぱい）ときは、古いのを消してから保存しなおす。
+ *   それでもだめなら古いのは残さない（何日も前のカードが、知らないうちに出つづけないように）
+ */
+export async function fetchContent({ uid, getManifest, getUnit, storage = globalThis.localStorage, retries = 1, waitMs = 1500, now = Date.now }) {
+  const cached = readCache(storage, uid);
+  let lastErr = null;
+  for (let i = 0; i <= retries; i++) {
+    if (i) await new Promise((r) => setTimeout(r, waitMs));
+    try {
+      const manifest = await getManifest();
+      if (!manifest) throw Object.assign(new Error('カードがまだアップロードされていません'), { code: 'no-content' });
+      const units = {};
+      let partial = false;
+      await Promise.all((manifest.decks || []).flatMap((d) => (d.units || []).map(async (u) => {
+        try { units[u.doc] = (await getUnit(u.doc)) || { cards: [] }; }
+        catch (e) {
+          if (e.code === 'permission-denied' || !cached?.units?.[u.doc]) throw e;
+          units[u.doc] = cached.units[u.doc]; partial = true;
+        }
+      })));
+      const data = { uid, at: now(), manifest: { ...manifest, updatedAt: null }, units };
+      if (!partial) writeCache(storage, data);
+      return partial ? { ...data, offline: true, cachedAt: cached.at } : data;
+    } catch (e) {
+      if (e.code === 'permission-denied' || e.code === 'no-content') throw e;
+      lastErr = e;
+    }
+  }
+  if (cached) return { ...cached, offline: true, cachedAt: cached.at };
+  throw lastErr;
+}
+function readCache(storage, uid) {
+  try { const c = JSON.parse(storage.getItem(CONTENT_KEY) || 'null'); return c && c.uid === uid ? c : null; } catch { return null; }
+}
+function writeCache(storage, data) {
+  const raw = JSON.stringify(data);
+  try { storage.setItem(CONTENT_KEY, raw); return true; } catch {}
+  try { storage.removeItem(CONTENT_KEY); storage.setItem(CONTENT_KEY, raw); return true; } catch {}
+  try { storage.removeItem(CONTENT_KEY); } catch {}
+  return false;
+}
+
 export async function loadContent() {
   const fb = await loadFirebase();
-  const uid = fb.auth.currentUser?.uid;
-  try {
-    const ms = await fb.fs.getDoc(fb.fs.doc(fb.db, 'content', 'manifest'));
-    if (!ms.exists()) throw Object.assign(new Error('カードがまだアップロードされていません'), { code: 'no-content' });
-    const manifest = ms.data();
-    const units = {};
-    await Promise.all(manifest.decks.flatMap((d) => d.units.map(async (u) => {
-      const s = await fb.fs.getDoc(fb.fs.doc(fb.db, 'content', u.doc));
-      units[u.doc] = s.exists() ? s.data() : { cards: [] };
-    })));
-    const data = { uid, at: Date.now(), manifest: { ...manifest, updatedAt: null }, units };
-    try { localStorage.setItem(CONTENT_KEY, JSON.stringify(data)); } catch {}
-    return data;
-  } catch (e) {
-    if (e.code === 'permission-denied' || e.code === 'no-content') throw e;
-    const cached = JSON.parse(localStorage.getItem(CONTENT_KEY) || 'null');
-    if (cached && cached.uid === uid) return { ...cached, offline: true };
-    throw e;
-  }
+  const { fs, db } = fb;
+  return fetchContent({
+    uid: fb.auth.currentUser?.uid,
+    getManifest: async () => { const s = await fs.getDoc(fs.doc(db, 'content', 'manifest')); return s.exists() ? s.data() : null; },
+    getUnit: async (id) => { const s = await fs.getDoc(fs.doc(db, 'content', id)); return s.exists() ? s.data() : null; },
+  });
 }
 
 /** ログインしている人の役割（ルールで読めた manifest の roles から。表示用） */
