@@ -14,6 +14,7 @@ import { writeChars, cellLayout, cellStates, MAX_CELLS } from './cells.js';
 import { localMessage, aiMessage } from './dailymsg.js';
 import { CloudSync, loadFirebase, signInGoogle, signOut, loadContent, roleOf } from './cloud.js';
 import { appCheckSiteKey } from './firebase-config.js';
+import { activeGoal, goalPlan, goalQueue, goalMode, SIT_MAX } from './goal.js';
 
 const $app = document.getElementById('app');
 const store = new Store();
@@ -36,6 +37,70 @@ const confirmMode = () => isParentRole() || !!store.settings.confirm;
 const confirmBanner = () => confirmMode() ? `<div class="confirm-banner">🔍 確認モード（記録しないよ）${isParentRole() ? '' : '<button class="btn soft mini" id="confirmOff">やめる</button>'}</div>` : '';
 function bindConfirmOff() { const b = document.getElementById('confirmOff'); if (b) b.onclick = () => { store.setSetting('confirm', false); toast('確認モードをやめたよ。ここからは記録するね'); route(); }; }
 const goal = () => store.settings.goal || 20;
+// ---------- 目標日モード（「火曜までにぜんぶ覚える」。設定は manifest.goal、期限がすぎたら出ない） ----------
+const targetGoal = () => activeGoal(CONTENT?.manifest?.goal);
+const goalSrc = () => ({ states: store.data.states, reviews: store.data.reviews, slog: store.data.slog, daily: store.derived.daily });
+function targetPlan() { const g = targetGoal(); return g ? goalPlan(DECKS, g, goalSrc()) : null; }
+const deckLine = (p) => p.decks.map((d) => `${d.emoji}${esc(d.name)} ${d.left}`).join('・');
+function goalBannerHtml() {
+  if (confirmMode() || isParentRole()) return '';
+  const p = targetPlan();
+  if (!p || !p.total) return '';
+  const L = esc(p.goal.label);
+  if (!p.remaining) return `<section class="goalbox done"><div class="gb-h">🎯 ${L}までの目標</div><div class="gb-b">🌟 ぜんぶ覚えたよ！（${p.ready}/${p.total}まい）すごい！</div><a class="btn soft mini" href="#/goal">くわしく</a></section>`;
+  const pct = Math.round((p.ready / p.total) * 100);
+  return `<section class="goalbox" id="goalBox">
+    <div class="gb-h">🎯 ${L}までに ぜんぶ覚えよう</div>
+    <div class="gb-num">${L}まで あと<b>${p.remaining}</b>問</div>
+    <div class="gb-b">${p.todayLeft ? `今日は あと <b>${p.todayLeft}</b>問 <small>（${deckLine(p)}）</small>` : '今日の分はおわり！✨ <small>もっとやると、あしたが楽になるよ</small>'}</div>
+    <div class="bar"><span style="width:${pct}%"></span></div>
+    <div class="gb-s">覚えた ${p.ready}/${p.total}まい（${pct}%）</div>
+    <div class="gb-btns"><a class="btn big primary" href="#/goal/start" id="goalStart">🎯 ${p.todayLeft ? `はじめる（${Math.min(p.todayLeft, SIT_MAX)}問）` : 'もっとやる'}</a><a class="btn soft mini" href="#/goal">くわしく</a></div>
+  </section>`;
+}
+function viewGoal() {
+  const p = targetPlan();
+  if (!p) return go('#/');
+  const L = esc(p.goal.label), S = p.stats;
+  const pc = (n, t) => Math.round((n / Math.max(1, t)) * 100);
+  const stack = (x) => { const t = Math.max(1, x.total); return `<div class="stack"><span class="s-m" style="width:${(x.ready / t) * 100}%"></span><span class="s-l" style="width:${(x.learning / t) * 100}%"></span><span class="s-n" style="width:${(x.new / t) * 100}%"></span></div>`; };
+  const decks = p.decks.map((d) => `<div class="pdeck">
+      <div class="pdeck-h">${d.emoji} <b>${esc(d.name)}</b> <small>${d.total}まい・覚えた ${pc(d.ready, d.total)}%・今日 あと${d.left}問</small></div>
+      ${stack(d)}
+      ${d.units.map((u) => `<div class="gurow"><span>${u.kai != null ? `第${u.kai}回 ` : ''}${esc(u.name)}</span><span>🌟${u.ready} 🟡${u.learning} ⚪${u.new} <small>/${u.total}</small></span></div>`).join('')}
+    </div>`).join('');
+  const days = p.days.map((d, i) => `<tr><td>${i === 0 ? '今日' : ''}（${d.w}）</td><td><b>${d.q}</b>問</td><td>約${Math.max(1, d.min)}分</td></tr>`).join('');
+  const stat = (v, txt, n, unit) => (v == null ? `<li>${txt}：<small>まだ記録が少ないので、ふつうの値（${unit}）で計算</small></li>` : `<li>${txt}：<b>${v}</b> <small>（${n}）</small></li>`);
+  $app.innerHTML = `
+    <header class="bar-top"><a href="#/" class="back">‹</a><h1>🎯 ${L}までの目標</h1></header>
+    <section class="goalbox">
+      <div class="gb-num">${L}まで あと<b>${p.remaining}</b>問</div>
+      <div class="gb-b">覚えた ${p.ready}/${p.total}まい・🟡まだ ${p.learning}・⚪やっていない ${p.new}</div>
+      <p class="small">「覚えた」＝ 時間を1時間以上あけて、2回つづけて「わかった」以上</p>
+      ${p.todayLeft || p.remaining ? `<a class="btn big primary" href="#/goal/start">🎯 ${p.todayLeft ? `今日の学習（あと${p.todayLeft}問）` : 'もっとやる'}</a>` : ''}
+    </section>
+    <h2 class="sec">1日の問題数</h2>
+    <table class="gplan"><tr><th>日</th><th>問題数</th><th>時間</th></tr>${days}</table>
+    ${p.heavy ? '<p class="gwarn">🐰 ちょっと多いね。苦手なカードと、まだやっていないカードから先に出すよ。1回30問ずつ、休みながらやろう</p>' : ''}
+    <h2 class="sec">教科・回ごと</h2>
+    ${decks}
+    <h2 class="sec">これまでの記録から</h2>
+    <ul class="gstats">
+      ${stat(S.acc == null ? null : pc(S.acc * 100, 100) + '%', '正解率（30日・わかった以上）', `${S.accN}回`, '80%')}
+      ${stat(S.attempts == null ? null : S.attempts.toFixed(1) + '回', '新しいカードを覚えるまでの回数', `${S.attemptsN}まい`, p.stats.use.attempts.toFixed(1) + '回')}
+      ${stat(S.sec == null ? null : Math.round(S.sec) + '秒', '1まいにかかる時間', `${S.secN}まい`, '25秒')}
+      ${S.perDay == null ? '' : `<li>この2週間、勉強した日の1日のまい数：<b>${Math.round(S.perDay)}</b>まい <small>（${S.perDayN}日）</small></li>`}
+    </ul>
+    <p class="small">${esc(p.goal.until.slice(5).replace('-', '/'))}の夜をすぎたら、このモードは自動でおわって、ふだんの学習にもどるよ。</p>
+    ${nav('home')}`;
+}
+function startGoal() {
+  const g = targetGoal();
+  if (!g) return go('#/');
+  const items = goalQueue(DECKS, g, goalSrc());
+  if (!items.length) { toast('🌟 いまは出すカードがないよ。少し時間をあけてね'); return go('#/goal'); }
+  startWith(items, 'goal', '#/');
+}
 let GAME_CACHE = null;
 function game() {
   const key = store.data.reviews.length + ':' + dayIndex() + ':' + goal();
@@ -201,6 +266,7 @@ function viewHome() {
     <div id="dailyArt">${dailyArtHtml()}</div>
     ${gameHeaderHtml(game(), store.derived.daily)}
     ${resumeHtml()}
+    ${goalBannerHtml()}
     <div class="home-grid">
     <section class="today">
       <div class="today-num">${todo}<small>まい</small></div>
@@ -510,7 +576,7 @@ if (['localhost', '127.0.0.1'].includes(location.hostname)) {
   };
 }
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-const KIND_LABEL = { study: '今日の学習', cram: 'ぜんぶ練習', review: '見直し', mistake: 'まちがい復習' };
+const KIND_LABEL = { study: '今日の学習', cram: 'ぜんぶ練習', review: '見直し', mistake: 'まちがい復習', goal: '🎯 目標の学習' };
 function startWith(items, kind, back, resume = null) {
   document.getElementById('annPop')?.remove(); // 勉強をはじめたら、おしらせはしまう（もう見たことになっている）
   const cm = confirmMode();
@@ -530,7 +596,8 @@ function startWith(items, kind, back, resume = null) {
   renderCard();
 }
 
-const logMode = () => (session.kind === 'study' ? 's' : 'r');
+// 目標の学習：新しいカード・復習の日のカードはふつうに予定を進める。それ以外（もう予定があるカード）は記録だけ
+const logMode = (card) => (session.kind === 'study' ? 's' : session.kind === 'goal' ? goalMode(store.state(card.id)) : 'r');
 
 function renderCard() {
   const s = session;
@@ -596,7 +663,7 @@ function renderFace() {
   const isNew = cardStatus(store.state(card.id)) === 'new';
   const yoji = deck.id === 'yoji';
   const tagLine = (card.tags || []).filter((t) => t !== '四字熟語').join('・');
-  const badge = s.kind === 'study' ? (isNew ? '<span class="new-badge">NEW</span>' : '') : `<span class="cram-badge">${s.kind === 'review' ? '見直し' : s.kind === 'mistake' ? 'まちがえた問題' : '練習'}</span>`;
+  const badge = s.kind === 'study' ? (isNew ? '<span class="new-badge">NEW</span>' : '') : s.kind === 'goal' ? `<span class="cram-badge goal">🎯</span>${isNew ? '<span class="new-badge">NEW</span>' : ''}` : `<span class="cram-badge">${s.kind === 'review' ? '見直し' : s.kind === 'mistake' ? 'まちがえた問題' : '練習'}</span>`;
   let q;
   const big = yoji && !card.qsub; // 以前の形（熟語を見て意味を答える）だけ大きく表示
   const sub = card.qsub || (big ? '読みと意味は？' : '');
@@ -922,7 +989,7 @@ function doGrade(g) {
   const miss = c.override ? [] : [...c.miss];
   stopSpeak();
   if (!s.confirm) {
-    store.grade(card, deck.id, g, { mode: logMode(), miss, auto: !!c.result || !!c.judge });
+    store.grade(card, deck.id, g, { mode: logMode(card), miss, auto: !!c.result || !!c.judge });
     store.logCard(s.sit, { g, cardMs: Date.now() - c.start }); // 勉強の記録（時刻・時間・まい数・正解）
   }
   s.done++;
@@ -1073,7 +1140,7 @@ function renderDone() {
       ${s.confirm ? '<p class="small">🔍 確認モードだったので、記録はしていないよ</p>' : `<div class="done-xp">✨ +${s.xp} XP ／ Lv.${game().level.lv}</div>`}
       ${s.kind === 'study' ? '<p class="small">わすれかけたころに、また出してあげるね 🐰</p>' : ''}
       <a class="btn big primary" href="#/">ホームへ</a>
-      ${s.kind === 'review' ? '<a class="btn big soft" href="#/review">📝 見直しにもどる</a>' : ''}${s.kind === 'mistake' ? '<a class="btn big soft" href="#/mistakes" id="homeMistakes">🔁 まちがえた問題にもどる</a>' : ''}
+      ${s.kind === 'review' ? '<a class="btn big soft" href="#/review">📝 見直しにもどる</a>' : ''}${s.kind === 'mistake' ? '<a class="btn big soft" href="#/mistakes" id="homeMistakes">🔁 まちがえた問題にもどる</a>' : ''}${s.kind === 'goal' && targetGoal() ? `<a class="btn big soft" href="#/goal">🎯 ${esc(targetGoal().label)}までの目標を見る</a>` : ''}
       <a class="btn big soft" href="#/progress">📊 進み具合を見る</a>
     </main>`;
   if (!s.confirm) { confetti(1.4); store.setInprog(null); }
@@ -1499,6 +1566,7 @@ async function route() {
     case 'cram': return startSession([parts[1]], parts[2] || '', true);
     case 'review': return viewReviewPicker();
     case 'resume': return resumeSession();
+    case 'goal': return parts[1] === 'start' ? startGoal() : viewGoal();
     case 'mistakes': return viewMistakes();
     case 'progress': return viewProgress();
     case 'rewards': return viewRewards();

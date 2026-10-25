@@ -418,3 +418,21 @@ small { font-size: .78em; color: var(--mute); font-weight: normal; }
 .ann-text { margin: 4px 0 0; font-size: 21px; font-weight: bold; color: var(--ink); }
 @keyframes annFade { from { opacity: 0; } }
 @keyframes annPop { from { transform: scale(.7); opacity: 0; } }
+/* 目標日モード（🎯 ○曜までにぜんぶ覚える） */
+.goalbox { background: #fff; border: 3px solid #ffd27a; border-radius: 22px; padding: 14px 16px; margin: 10px 0 14px; box-shadow: 0 4px 0 #ffe7b0; }
+.goalbox.done { border-color: #9fdcb0; box-shadow: 0 4px 0 #cdeed6; }
+.goalbox .gb-h { font-weight: 800; color: #c07a00; }
+.goalbox .gb-num { font-size: 20px; font-weight: 800; margin: 4px 0; }
+.goalbox .gb-num b { font-size: 36px; color: #e08a00; margin: 0 2px; }
+.goalbox .gb-b { line-height: 1.5; }
+.goalbox .gb-s { font-size: 13px; color: var(--mute); }
+.goalbox .bar span { background: #ffb300; }
+.goalbox .gb-btns { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.goalbox .gb-btns .btn.big { flex: 1; text-align: center; }
+.cram-badge.goal { background: #ffb300; }
+.gurow { display: flex; justify-content: space-between; font-size: 14px; padding: 3px 0; border-top: 1px dashed #f3dbe5; }
+.gplan { width: 100%; border-collapse: collapse; background: #fff; border-radius: 16px; overflow: hidden; }
+.gplan th, .gplan td { padding: 8px 10px; text-align: center; border-bottom: 1px solid #f3eaf0; }
+.gplan th { background: #fff4d6; font-size: 13px; }
+.gwarn { background: #fff4d6; border-radius: 14px; padding: 10px 12px; margin: 8px 0; }
+.gstats { background: #fff; border-radius: 16px; padding: 10px 14px 10px 30px; line-height: 1.8; }
