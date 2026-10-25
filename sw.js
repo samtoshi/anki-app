@@ -1,5 +1,5 @@
 // オフラインでも使えるようにするサービスワーカー
-const VERSION = 'v27';
+const VERSION = 'v28';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest',
   'js/app.js', 'js/srs.js', 'js/store.js', 'js/sync.js', 'js/stats.js',

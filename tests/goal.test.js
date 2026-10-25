@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeGoal, isoToDay, dayStartMs, goalStatus, pastStats, goalPlan, goalQueue, goalMode, workOf, GAP_MS } from '../js/goal.js';
+import { activeGoal, activeGoals, isoToDay, dayStartMs, goalStatus, pastStats, goalPlan, goalQueue, goalMode, workOf, GAP_MS } from '../js/goal.js';
 import { dayIndex, schedule } from '../js/srs.js';
 
 const H = 3600e3;
@@ -169,4 +169,28 @@ test('goalMode: 新しい・復習の日のカードはふつうの記録、そ�
   assert.equal(goalMode(schedule(null, 'good', TODAY - 3), TODAY), 's');
   assert.equal(goalMode(schedule(null, 'good', TODAY), TODAY), 'r');
   void GAP_MS;
+});
+
+test('activeGoals: 目標をいくつも（期限べつ）・期限の早いじゅん・すぎたものは出ない・前の形（goal）も読む', () => {
+  const tue = { id: 'tue', until: '2026-10-27', decks: { s: [1, 2], k: null } };
+  const thu = { id: 'thu', until: '2026-10-29', decks: { r: [1] } };
+  const m = { goal: tue, goals: [thu, tue] };
+  const gs = activeGoals(m, TODAY);
+  assert.deepEqual(gs.map((g) => [g.id, g.label, g.daysLeft]), [['tue', '火曜', 3], ['thu', '木曜', 5]]);
+  // 火曜をすぎたら木曜だけ
+  assert.deepEqual(activeGoals(m, TODAY + 3).map((g) => g.id), ['thu']);
+  assert.deepEqual(activeGoals(m, TODAY + 5), []);
+  // 前の形（goal だけ）
+  assert.deepEqual(activeGoals({ goal: tue }, TODAY).map((g) => g.id), ['tue']);
+  assert.deepEqual(activeGoals({}, TODAY), []);
+  assert.deepEqual(activeGoals(null, TODAY), []);
+  // id がない・かぶる → g0, g1…
+  assert.deepEqual(activeGoals({ goals: [{ ...tue, id: undefined }, { ...thu, id: 'x' }, { ...thu, id: 'x' }] }, TODAY).map((g) => g.id), ['g0', 'x', 'g2']);
+  // それぞれの期限で1日の数を計算（理科は5日でわる）
+  const reviews = [];
+  const pT = goalPlan(DECKS, gs[0], { reviews }, NOW), pR = goalPlan(DECKS, gs[1], { reviews }, NOW);
+  assert.equal(pT.total, 14); assert.equal(pR.total, 9);
+  assert.equal(pT.days.length, 3); assert.equal(pR.days.length, 5);
+  assert.deepEqual(pR.decks.map((d) => d.id), ['r']);
+  assert.ok(pR.todayTarget < pR.remaining);
 });

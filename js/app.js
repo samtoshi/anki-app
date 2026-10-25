@@ -14,7 +14,7 @@ import { writeChars, cellLayout, cellStates, MAX_CELLS } from './cells.js';
 import { localMessage, aiMessage } from './dailymsg.js';
 import { CloudSync, loadFirebase, signInGoogle, signOut, loadContent, roleOf } from './cloud.js';
 import { appCheckSiteKey } from './firebase-config.js';
-import { activeGoal, goalPlan, goalQueue, goalMode, SIT_MAX } from './goal.js';
+import { activeGoals, goalPlan, goalQueue, goalMode, SIT_MAX } from './goal.js';
 
 const $app = document.getElementById('app');
 const store = new Store();
@@ -37,29 +37,37 @@ const confirmMode = () => isParentRole() || !!store.settings.confirm;
 const confirmBanner = () => confirmMode() ? `<div class="confirm-banner">🔍 確認モード（記録しないよ）${isParentRole() ? '' : '<button class="btn soft mini" id="confirmOff">やめる</button>'}</div>` : '';
 function bindConfirmOff() { const b = document.getElementById('confirmOff'); if (b) b.onclick = () => { store.setSetting('confirm', false); toast('確認モードをやめたよ。ここからは記録するね'); route(); }; }
 const goal = () => store.settings.goal || 20;
-// ---------- 目標日モード（「火曜までにぜんぶ覚える」。設定は manifest.goal、期限がすぎたら出ない） ----------
-const targetGoal = () => activeGoal(CONTENT?.manifest?.goal);
+// ---------- 目標日モード（「火曜までにぜんぶ覚える」。設定は manifest.goals（前の形は goal）、期限がすぎたら出ない） ----------
+// 目標は いくつでも（教科ごとに期限がちがってよい）。それぞれの期限に向けて、1日の問題数を別々に計算する
+const targetGoals = () => activeGoals(CONTENT?.manifest);
+const targetGoal = (id) => { const gs = targetGoals(); return (id ? gs.find((g) => g.id === id) : null) || (id ? null : gs[0] || null); };
+let lastGoalId = '';
+const goalHref = (g, start) => `#/goal/${encodeURIComponent(g.id)}${start ? '/start' : ''}`;
 const goalSrc = () => ({ states: store.data.states, reviews: store.data.reviews, slog: store.data.slog, daily: store.derived.daily });
-function targetPlan() { const g = targetGoal(); return g ? goalPlan(DECKS, g, goalSrc()) : null; }
+function targetPlan(id) { const g = targetGoal(id); return g ? goalPlan(DECKS, g, goalSrc()) : null; }
 const deckLine = (p) => p.decks.map((d) => `${d.emoji}${esc(d.name)} ${d.left}`).join('・');
 function goalBannerHtml() {
   if (confirmMode() || isParentRole()) return '';
-  const p = targetPlan();
+  const html = targetGoals().map((g) => oneGoalBannerHtml(goalPlan(DECKS, g, goalSrc()))).join('');
+  return html ? `<div id="goalBox">${html}</div>` : '';
+}
+function oneGoalBannerHtml(p) {
   if (!p || !p.total) return '';
   const L = esc(p.goal.label);
-  if (!p.remaining) return `<section class="goalbox done"><div class="gb-h">🎯 ${L}までの目標</div><div class="gb-b">🌟 ぜんぶ覚えたよ！（${p.ready}/${p.total}まい）すごい！</div><a class="btn soft mini" href="#/goal">くわしく</a></section>`;
+  const T = p.goal.title ? ` <small class="gb-t">${esc(p.goal.title)}</small>` : '';
+  if (!p.remaining) return `<section class="goalbox done"><div class="gb-h">🎯 ${L}までの目標${T}</div><div class="gb-b">🌟 ぜんぶ覚えたよ！（${p.ready}/${p.total}まい）すごい！</div><a class="btn soft mini" href="${goalHref(p.goal)}">くわしく</a></section>`;
   const pct = Math.round((p.ready / p.total) * 100);
-  return `<section class="goalbox" id="goalBox">
-    <div class="gb-h">🎯 ${L}までに ぜんぶ覚えよう</div>
+  return `<section class="goalbox">
+    <div class="gb-h">🎯 ${L}までに ぜんぶ覚えよう${T}</div>
     <div class="gb-num">${L}まで あと<b>${p.remaining}</b>問</div>
     <div class="gb-b">${p.todayLeft ? `今日は あと <b>${p.todayLeft}</b>問 <small>（${deckLine(p)}）</small>` : '今日の分はおわり！✨ <small>もっとやると、あしたが楽になるよ</small>'}</div>
     <div class="bar"><span style="width:${pct}%"></span></div>
     <div class="gb-s">覚えた ${p.ready}/${p.total}まい（${pct}%）</div>
-    <div class="gb-btns"><a class="btn big primary" href="#/goal/start" id="goalStart">🎯 ${p.todayLeft ? `はじめる（${Math.min(p.todayLeft, SIT_MAX)}問）` : 'もっとやる'}</a><a class="btn soft mini" href="#/goal">くわしく</a></div>
+    <div class="gb-btns"><a class="btn big primary goal-start" href="${goalHref(p.goal, true)}">🎯 ${p.todayLeft ? `はじめる（${Math.min(p.todayLeft, SIT_MAX)}問）` : 'もっとやる'}</a><a class="btn soft mini" href="${goalHref(p.goal)}">くわしく</a></div>
   </section>`;
 }
-function viewGoal() {
-  const p = targetPlan();
+function viewGoal(id) {
+  const p = targetPlan(id);
   if (!p) return go('#/');
   const L = esc(p.goal.label), S = p.stats;
   const pc = (n, t) => Math.round((n / Math.max(1, t)) * 100);
@@ -72,12 +80,12 @@ function viewGoal() {
   const days = p.days.map((d, i) => `<tr><td>${i === 0 ? '今日' : ''}（${d.w}）</td><td><b>${d.q}</b>問</td><td>約${Math.max(1, d.min)}分</td></tr>`).join('');
   const stat = (v, txt, n, unit) => (v == null ? `<li>${txt}：<small>まだ記録が少ないので、ふつうの値（${unit}）で計算</small></li>` : `<li>${txt}：<b>${v}</b> <small>（${n}）</small></li>`);
   $app.innerHTML = `
-    <header class="bar-top"><a href="#/" class="back">‹</a><h1>🎯 ${L}までの目標</h1></header>
+    <header class="bar-top"><a href="#/" class="back">‹</a><h1>🎯 ${L}までの目標</h1></header>${p.goal.title ? `<p class="small">${esc(p.goal.title)}</p>` : ''}
     <section class="goalbox">
       <div class="gb-num">${L}まで あと<b>${p.remaining}</b>問</div>
       <div class="gb-b">覚えた ${p.ready}/${p.total}まい・🟡まだ ${p.learning}・⚪やっていない ${p.new}</div>
       <p class="small">「覚えた」＝ 時間を1時間以上あけて、2回つづけて「わかった」以上</p>
-      ${p.todayLeft || p.remaining ? `<a class="btn big primary" href="#/goal/start">🎯 ${p.todayLeft ? `今日の学習（あと${p.todayLeft}問）` : 'もっとやる'}</a>` : ''}
+      ${p.todayLeft || p.remaining ? `<a class="btn big primary" href="${goalHref(p.goal, true)}">🎯 ${p.todayLeft ? `今日の学習（あと${p.todayLeft}問）` : 'もっとやる'}</a>` : ''}
     </section>
     <h2 class="sec">1日の問題数</h2>
     <table class="gplan"><tr><th>日</th><th>問題数</th><th>時間</th></tr>${days}</table>
@@ -94,11 +102,12 @@ function viewGoal() {
     <p class="small">${esc(p.goal.until.slice(5).replace('-', '/'))}の夜をすぎたら、このモードは自動でおわって、ふだんの学習にもどるよ。</p>
     ${nav('home')}`;
 }
-function startGoal() {
-  const g = targetGoal();
+function startGoal(id) {
+  const g = targetGoal(id);
   if (!g) return go('#/');
+  lastGoalId = g.id;
   const items = goalQueue(DECKS, g, goalSrc());
-  if (!items.length) { toast('🌟 いまは出すカードがないよ。少し時間をあけてね'); return go('#/goal'); }
+  if (!items.length) { toast('🌟 いまは出すカードがないよ。少し時間をあけてね'); return go(goalHref(g)); }
   startWith(items, 'goal', '#/');
 }
 let GAME_CACHE = null;
@@ -1140,7 +1149,7 @@ function renderDone() {
       ${s.confirm ? '<p class="small">🔍 確認モードだったので、記録はしていないよ</p>' : `<div class="done-xp">✨ +${s.xp} XP ／ Lv.${game().level.lv}</div>`}
       ${s.kind === 'study' ? '<p class="small">わすれかけたころに、また出してあげるね 🐰</p>' : ''}
       <a class="btn big primary" href="#/">ホームへ</a>
-      ${s.kind === 'review' ? '<a class="btn big soft" href="#/review">📝 見直しにもどる</a>' : ''}${s.kind === 'mistake' ? '<a class="btn big soft" href="#/mistakes" id="homeMistakes">🔁 まちがえた問題にもどる</a>' : ''}${s.kind === 'goal' && targetGoal() ? `<a class="btn big soft" href="#/goal">🎯 ${esc(targetGoal().label)}までの目標を見る</a>` : ''}
+      ${s.kind === 'review' ? '<a class="btn big soft" href="#/review">📝 見直しにもどる</a>' : ''}${s.kind === 'mistake' ? '<a class="btn big soft" href="#/mistakes" id="homeMistakes">🔁 まちがえた問題にもどる</a>' : ''}${s.kind === 'goal' && targetGoal(lastGoalId) ? `<a class="btn big soft" href="${goalHref(targetGoal(lastGoalId))}">🎯 ${esc(targetGoal(lastGoalId).label)}までの目標を見る</a>` : ''}
       <a class="btn big soft" href="#/progress">📊 進み具合を見る</a>
     </main>`;
   if (!s.confirm) { confetti(1.4); store.setInprog(null); }
@@ -1566,7 +1575,10 @@ async function route() {
     case 'cram': return startSession([parts[1]], parts[2] || '', true);
     case 'review': return viewReviewPicker();
     case 'resume': return resumeSession();
-    case 'goal': return parts[1] === 'start' ? startGoal() : viewGoal();
+    case 'goal': { // #/goal・#/goal/start（前の形＝いちばん早い目標）、#/goal/<id>・#/goal/<id>/start
+      const id = parts[1] && parts[1] !== 'start' ? parts[1] : '';
+      return (id ? parts[2] : parts[1]) === 'start' ? startGoal(id) : viewGoal(id);
+    }
     case 'mistakes': return viewMistakes();
     case 'progress': return viewProgress();
     case 'rewards': return viewRewards();

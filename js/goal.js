@@ -37,7 +37,25 @@ export function activeGoal(raw, today = dayIndex()) {
   if (fromDay != null && today < fromDay) return null;
   const [y, m, d] = raw.until.split('-').map(Number);
   const label = raw.label || (WEEK[new Date(y, m - 1, d).getDay()] + '曜');
-  return { until: raw.until, untilDay, label, title: raw.title || '', decks: raw.decks, daysLeft: untilDay - today + 1 };
+  return { id: typeof raw.id === 'string' ? raw.id : '', until: raw.until, untilDay, label, title: raw.title || '', decks: raw.decks, daysLeft: untilDay - today + 1 };
+}
+
+/**
+ * manifest から、いま有効な目標をぜんぶ（期限の早いじゅん）。goals:[...] があればそれ、なければ goal（前の形）
+ * 目標ごとに期限がちがってよい（例：社会・漢字は火曜、理科は木曜）。id がないときは 'g0','g1'…
+ */
+export function activeGoals(manifest, today = dayIndex()) {
+  if (!manifest || typeof manifest !== 'object') return [];
+  const raws = Array.isArray(manifest.goals) && manifest.goals.length ? manifest.goals : manifest.goal ? [manifest.goal] : [];
+  const out = [], seen = new Set();
+  raws.forEach((r, i) => {
+    const g = activeGoal(r, today);
+    if (!g) return;
+    if (!g.id || seen.has(g.id)) g.id = 'g' + i;
+    seen.add(g.id);
+    out.push(g);
+  });
+  return out.sort((a, b) => a.untilDay - b.untilDay);
 }
 
 /** 目標のカード [{card, deck, unit}]（decks はアプリのデッキ一覧） */

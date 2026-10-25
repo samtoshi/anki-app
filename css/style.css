@@ -422,6 +422,7 @@ small { font-size: .78em; color: var(--mute); font-weight: normal; }
 .goalbox { background: #fff; border: 3px solid #ffd27a; border-radius: 22px; padding: 14px 16px; margin: 10px 0 14px; box-shadow: 0 4px 0 #ffe7b0; }
 .goalbox.done { border-color: #9fdcb0; box-shadow: 0 4px 0 #cdeed6; }
 .goalbox .gb-h { font-weight: 800; color: #c07a00; }
+.goalbox .gb-h .gb-t { font-weight: 700; color: var(--mute); font-size: 12px; margin-left: 4px; }
 .goalbox .gb-num { font-size: 20px; font-weight: 800; margin: 4px 0; }
 .goalbox .gb-num b { font-size: 36px; color: #e08a00; margin: 0 2px; }
 .goalbox .gb-b { line-height: 1.5; }
