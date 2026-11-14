@@ -141,7 +141,13 @@ const DECK_DEFAULTS = {
   shakai: { name: '社会', emoji: '🗾', color: '#ffb86b' }, rika: { name: '理科', emoji: '🔬', color: '#7cc8ff' },
   yoji: { name: '四字熟語', emoji: '🀄', color: '#c9a0ff' },
   'kokugo-chishiki': { name: '国語知識', emoji: '📖', color: '#ff9fc4' }, kanji: { name: '漢字', emoji: '✏️', color: '#8fd99b' },
+  tests: { name: 'テストのまちがい', emoji: '📋', color: '#ff9b9b', plain: true },
 };
+// テストのまちがい（plain なデッキ）：回の番号ではなく、テストの名前で出す（「第1回」とは言わない）
+const unitTitle = (d, u) => `${u.kai != null && !d.plain ? `第${u.kai}回 ` : ''}${u.name || ''}`;
+/** カードの図（問題・答えの切り抜き）。Firestore から読んだ data URL の画像だけ出す */
+const safeImg = (src) => (/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(String(src || '')) ? src : '');
+const figHtml = (src, cls, alt) => (safeImg(src) ? `<figure class="${cls}"><img src="${src}" alt="${alt}"></figure>` : '');
 async function loadDecks() {
   CONTENT = await loadContent();
   const m = CONTENT.manifest;
@@ -201,15 +207,16 @@ function rangeText(d) {
 function itemsRangeLabel(items) {
   const by = new Map();
   for (const { card, deck } of items) { if (!by.has(deck.id)) by.set(deck.id, { deck, k: new Set() }); if (card.kai != null) by.get(deck.id).k.add(card.kai); }
-  return [...by.values()].map(({ deck, k }) => `${deck.name}${k.size ? ' 第' + [...k].sort((a, b) => a - b).join('・') + '回' : ''}`).join('・');
+  return [...by.values()].map(({ deck, k }) => `${deck.name}${k.size && !deck.plain ? ' 第' + [...k].sort((a, b) => a - b).join('・') + '回' : ''}`).join('・');
 }
 const deckById = (id) => DECKS.find((d) => d.id === id);
 function tagsOf(deck) {
+  if (deck.plain) return deck.units.map((u) => (u.cards[0]?.tags || [])[0]).filter(Boolean).reverse(); // テストごと（新しいテストから）
   const out = [];
   for (const c of deck.cards) for (const t of c.tags || []) if (/^第\d+回$/.test(t) && !out.includes(t)) out.push(t);
   return out;
 }
-const unitOf = (deck, tag) => { const c = deck.cards.find((c) => c.tags.includes(tag)); return c ? c.tags.find((t) => t !== tag) || '' : ''; };
+const unitOf = (deck, tag) => { if (deck.plain) { const u = deck.units.find((x) => (x.cards[0]?.tags || [])[0] === tag); return u ? u.name : ''; } const c = deck.cards.find((c) => c.tags.includes(tag)); return c ? c.tags.find((t) => t !== tag) || '' : ''; };
 const filterCards = (deck, tag) => (tag ? deck.cards.filter((c) => c.tags.includes(tag)) : deck.cards);
 const stats = () => computeStats(DECKS, store.statsSource());
 
@@ -255,7 +262,7 @@ function viewHome() {
     const nNew = Math.min(c.fresh, store.newLeft(d.id, today));
     totalDue += c.due; totalNew += nNew;
     const pct = Math.round((c.mastered / Math.max(1, c.total)) * 100);
-    const cur = hasRange(d) ? esc(rangeText(d)) : d.units.filter((u) => u.latest && u.kai != null).map((u) => `第${u.kai}回 ${esc(u.name)}`).join('・');
+    const cur = d.plain ? `${d.units.length}回分のテスト` : hasRange(d) ? esc(rangeText(d)) : d.units.filter((u) => u.latest && u.kai != null).map((u) => `第${u.kai}回 ${esc(u.name)}`).join('・');
     return `<a class="deck" href="#/deck/${d.id}" style="--c:${d.color}">
       <div class="deck-emoji">${d.emoji}</div>
       <div class="deck-body">
@@ -284,6 +291,7 @@ function viewHome() {
              : `<p class="done-msg">今日の分はおわり！えらい！✨</p>`}
       <a class="btn big soft" href="#/review">📝 テスト前見直し</a>
       ${(() => { const n = mistakeCards().length; return n ? `<a class="btn big soft" href="#/mistakes" id="homeMistakes">🔁 まちがい復習（${n}まい）</a>` : ''; })()}
+      ${testsBtnHtml('homeTests')}
       ${confirmMode() ? '' : '<button class="btn soft mini" id="confirmOn">🔍 確認モード（記録しないで試す・パパ／ママ用）</button>'}
     </section>
     <section>
@@ -402,19 +410,21 @@ function viewDeck(id, tag = '') {
   const nNew = Math.min(c.fresh, store.newLeft(d.id, today));
   const chips = hasRange(d) && !isParentRole() ? rangePickerHtml(d, today) : tags.length > 1 ? `<div class="chips">
       <a class="chip ${tag ? '' : 'on'}" href="#/deck/${d.id}">ぜんぶ</a>
-      ${tags.map((t) => `<a class="chip ${t === tag ? 'on' : ''}" href="#/deck/${d.id}/${encodeURIComponent(t)}">${esc(t)} ${esc(unitOf(d, t))}</a>`).join('')}
-    </div>` : (tags.length ? `<p class="small">${esc(tags[0])} ${esc(unitOf(d, tags[0]))}（前の回は「テスト前見直し」で）</p>` : '');
+      ${tags.map((t) => `<a class="chip ${t === tag ? 'on' : ''}" href="#/deck/${d.id}/${encodeURIComponent(t)}">${d.plain ? '' : esc(t) + ' '}${esc(unitOf(d, t))}</a>`).join('')}
+    </div>` : (tags.length ? `<p class="small">${d.plain ? '' : esc(tags[0]) + ' '}${esc(unitOf(d, tags[0]))}${d.plain ? '' : '（前の回は「テスト前見直し」で）'}</p>` : '');
+  const testsNote = d.plain ? '<p class="small">テストでまちがえた問題だけが入っています。テストをえらぶと、そのテストだけ練習できるよ。正解がつづくと、だんだん出なくなるよ。</p>' : '';
   const grades = store.derived.lastGrades;
   const list = cards.map((card) => {
     const s = cardStatus(store.state(card.id));
     const mark = { new: '⚪', learning: '🟡', mastered: '🌟' }[s];
     const weak = isWeak(store.state(card.id), grades[card.id]) ? ' <span class="weak-badge">苦手</span>' : '';
-    return `<details class="item"><summary>${mark} ${esc(card.q)}${weak}</summary><div class="ans"><b>${nl(card.a)}</b>${card.reading ? `<div class="reading">${esc(card.reading)}</div>` : ''}${card.note ? `<div class="note">💡 ${nl(card.note)}</div>` : ''}</div></details>`;
+    return `<details class="item"><summary>${mark} ${esc(card.q)}${weak}</summary><div class="ans">${figHtml(card.qimg, 'q-fig small', '問題の図')}<b>${nl(card.a)}</b>${card.reading ? `<div class="reading">${esc(card.reading)}</div>` : ''}${card.note ? `<div class="note">💡 ${nl(card.note)}</div>` : ''}</div></details>`;
   }).join('');
   $app.innerHTML = `
     ${confirmBanner()}
     <header class="bar-top" style="--c:${d.color}"><a href="${isParentRole() ? '#/cards' : '#/'}" class="back">‹</a><h1>${d.emoji} ${esc(d.name)}</h1></header>
     ${(store.resumable?.d || []).includes(d.id) ? resumeHtml() : ''}
+    ${testsNote}
     ${chips}
     <section class="stat-row">
       <div><b>${c.due}</b><span>今日の学習</span></div>
@@ -470,7 +480,7 @@ function viewReviewPicker() {
   const sel = reviewSel || (reviewSel = { deck: decks[0].id, by: {}, mode: 'all' });
   if (!sel.by) sel.by = {};
   const d = deckById(sel.deck) || decks[0];
-  const units = d.units.slice().sort((a, b) => (a.kai ?? 1e9) - (b.kai ?? 1e9));
+  const units = d.units.slice().sort((a, b) => (d.plain ? -1 : 1) * ((a.kai ?? 1e9) - (b.kai ?? 1e9))); // テストのまちがいは新しいテストから
   if (!sel.by[d.id]) sel.by[d.id] = units.filter((u) => u.latest).map((u) => u.kai);
   const grades = store.derived.lastGrades;
   // えらんだ回（教科をまたいで、いくつでも）
@@ -485,20 +495,21 @@ function viewReviewPicker() {
     const on = cur.includes(u.kai);
     return `<button class="unit ${on ? 'on' : ''}" data-kai="${u.kai}">
       <span class="check">${on ? '✅' : '⬜'}</span>
-      <span class="u-name">${u.kai != null ? `第${u.kai}回 ` : ''}${esc(u.name)} ${u.latest && u.kai != null ? '<span class="new-badge">さいしん</span>' : ''}</span>
+      <span class="u-name">${esc(unitTitle(d, u))} ${u.latest && u.kai != null && !d.plain ? '<span class="new-badge">さいしん</span>' : ''}</span>
       <span class="u-meta">${u.cards.length}まい・🌟${m}・苦手 ${w}</span></button>`;
   }).join('');
   const kais = units.map((u) => u.kai).filter((k) => k != null);
-  const rangeSel = kais.length > 2 ? `<div class="range">はんい：<select id="rFrom">${kais.map((k) => `<option ${k === kais[0] ? 'selected' : ''}>${k}</option>`).join('')}</select> 回 〜
+  const rangeSel = kais.length > 2 && !d.plain ? `<div class="range">はんい：<select id="rFrom">${kais.map((k) => `<option ${k === kais[0] ? 'selected' : ''}>${k}</option>`).join('')}</select> 回 〜
       <select id="rTo">${kais.map((k) => `<option ${k === kais[kais.length - 1] ? 'selected' : ''}>${k}</option>`).join('')}</select> 回 <button class="btn soft mini" id="rApply">えらぶ</button></div>` : '';
   const cnt = (x) => (sel.by[x.id] || []).length;
   $app.innerHTML = `${confirmBanner()}
     <header class="bar-top"><h1>📝 見直し・過去の復習</h1></header>
     <a class="btn big mistake-btn" href="#/mistakes">🔁 まちがえた問題だけ復習する（${mistakeCards().length}まい）</a>
+    ${testsBtnHtml('reviewTests')}
     <p class="small">えらんだ回（前の回も）のカードをまとめて見直せます。教科をまたいでえらべます。復習の予定は変わりません（記録は残ります）。</p>
     <div class="chips">${decks.map((x) => `<button class="chip ${x.id === d.id ? 'on' : ''}" data-deck="${x.id}">${x.emoji} ${esc(x.name)}${cnt(x) ? ` <b class="cnt">${cnt(x)}</b>` : ''}</button>`).join('')}</div>
-    <h2 class="sec">${d.emoji} ${esc(d.name)}：回をえらぶ <small>（いくつでも・${units.length}回分）</small></h2>
-    <div class="quick"><button class="btn soft mini" data-q="all">ぜんぶ</button><button class="btn soft mini" data-q="past">前の回だけ</button><button class="btn soft mini" data-q="latest">さいしんだけ</button><button class="btn soft mini" data-q="none">はずす</button></div>
+    <h2 class="sec">${d.emoji} ${esc(d.name)}：${d.plain ? 'テスト' : '回'}をえらぶ <small>（いくつでも・${units.length}${d.plain ? 'つ' : '回分'}）</small></h2>
+    <div class="quick"><button class="btn soft mini" data-q="all">ぜんぶ</button>${d.plain ? '' : '<button class="btn soft mini" data-q="past">前の回だけ</button><button class="btn soft mini" data-q="latest">さいしんだけ</button>'}<button class="btn soft mini" data-q="none">はずす</button></div>
     ${rangeSel}
     <div class="units">${unitRows}</div>
     <h2 class="sec">どれをやる？ <small>えらんだ回：${picked.length}回分</small></h2>
@@ -527,6 +538,14 @@ function viewReviewPicker() {
     const list = sel.mode === 'weak' ? cards.filter((x) => isWeak(store.state(x.card.id), grades[x.card.id])) : cards.slice();
     startWith(shuffle(list), 'review', '#/review');
   };
+}
+
+// ---------- テストのまちがい（毎週の確認テスト・復習テストでまちがえた問題。デッキ tests） ----------
+function testsBtnHtml(id) {
+  const d = deckById('tests');
+  if (!d || !d.allCards.length) return '';
+  const due = counts(d.cards, dayIndex()).due;
+  return `<a class="btn big soft tests-btn" href="#/deck/tests" id="${id}">📋 テストのまちがい（${d.allCards.length}${due ? `・今日 ${due}` : ''}）</a>`;
 }
 
 // ---------- まちがえた問題の復習 ----------
@@ -678,6 +697,7 @@ function renderFace() {
   const sub = card.qsub || (big ? '読みと意味は？' : '');
   if (c.writeMode) q = `<div class="q">${nl(card.wq)}</div>${card.qsub && s.phase === 'q' ? `<div class="q-sub">${esc(card.qsub)}</div>` : ''}${s.hint ? `<div class="hint">💭 ${nl(card.whint)}</div>` : ''}`;
   else q = `<div class="q ${big ? 'yoji' : ''}">${nl(card.q)}</div>${sub && s.phase === 'q' ? `<div class="q-sub">${esc(sub)}</div>` : ''}${s.hint && card.hint ? `<div class="hint">💭 ${nl(card.hint)}</div>` : ''}`;
+  if (safeImg(card.qimg)) q += figHtml(card.qimg, 'q-fig', '問題の図');
   if (canSpeak()) q = `<button class="speak ${speechPending() && ttsAutoOn() ? 'needs-tap' : ''}" id="speakBtn" aria-label="読み上げ">🔊</button>` + q;
   let body = '';
   if (s.phase === 'checking') body = checkingHtml();
@@ -766,7 +786,7 @@ function answerHtml(card) {
   const main = (c.writeMode || (card.w && card.a === card.w))
     ? `<div class="a-main big">${esc(card.w)}</div><div class="reading">${esc(card.reading)}</div>${meaning ? `<div class="a-sub">${nl(meaning)}</div>` : ''}`
     : `${card.reading ? `<div class="reading">${esc(card.reading)}</div>` : ''}<div class="a-main">${nl(card.a)}</div>`;
-  return `${main}${card.note ? `<div class="note">💡 ${nl(card.note)}</div>` : ''}`;
+  return `${main}${card.note ? `<div class="note">💡 ${nl(card.note)}</div>` : ''}${figHtml(card.aimg, 'a-fig', '解き方')}`;
 }
 
 function diffHtml(res) {
@@ -1179,7 +1199,7 @@ function progressHtml(st) {
       <div class="legend"><span>🌟覚えた ${d.mastered}</span><span>🟡学習中 ${d.learning}</span><span>⚪新しい ${d.new}</span></div>
     </div>`).join('');
   const unitRows = (st.units || []).slice().sort((a, b) => (a.deck === b.deck ? b.kai - a.kai : 0)).map((u) => `<div class="urow">
-      <div class="urow-h">${u.emoji} 第${u.kai}回 ${esc(u.name)} ${u.latest ? '<span class="new-badge">さいしん</span>' : ''}</div>
+      <div class="urow-h">${u.emoji} ${u.plain ? '' : `第${u.kai}回 `}${esc(u.name)} ${u.latest && !u.plain ? '<span class="new-badge">さいしん</span>' : ''}</div>
       ${stack(u)}
       <div class="legend"><span>🌟${u.mastered}/${u.total}（${Math.round((u.mastered / Math.max(1, u.total)) * 100)}%）</span><span>🟡${u.learning}</span><span>苦手 ${u.weak}</span></div>
     </div>`).join('');

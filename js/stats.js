@@ -22,7 +22,7 @@ export function computeStats(decks, src, today = dayIndex()) {
   const units = [];
   for (const d of decks) for (const u of d.units || []) {
     if (u.kai == null) continue;
-    const c = { deck: d.id, deckName: d.name, emoji: d.emoji, kai: u.kai, name: u.name, latest: !!u.latest, total: u.cards.length, new: 0, learning: 0, mastered: 0, weak: 0 };
+    const c = { deck: d.id, deckName: d.name, emoji: d.emoji, kai: u.kai, name: u.name, latest: !!u.latest, plain: !!d.plain, total: u.cards.length, new: 0, learning: 0, mastered: 0, weak: 0 };
     for (const card of u.cards) {
       c[cardStatus(states[card.id])] += 1;
       if (isWeak(states[card.id], grades[card.id])) c.weak += 1;
