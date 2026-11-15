@@ -178,9 +178,10 @@ async function refreshContent(force = false) {
   } catch (e) { console.warn('refreshContent', e); }
   finally { refreshing = false; }
 }
-// ---------- はんい（社会・理科：どの回をやるか。いくつでも。教科ごとに覚えて、ほかの端末ともそろえる） ----------
+// ---------- はんい（社会・理科など：どの回をやるか。いくつでも。教科ごとに覚えて、ほかの端末ともそろえる） ----------
+// デッキ一覧（manifest）で range: true のデッキも、回をえらべる（入試 歴史など）
 const RANGE_DECKS = ['shakai', 'rika'];
-const hasRange = (d) => RANGE_DECKS.includes(d.id) && d.units.filter((u) => u.kai != null).length > 1;
+const hasRange = (d) => (RANGE_DECKS.includes(d.id) || d.range === true) && !d.plain && d.units.filter((u) => u.kai != null).length > 1;
 /** えらんだ回（なければ、いままでどおり「さいしん」の回） */
 function rangeKais(d) {
   const valid = d.units.map((u) => u.kai);
@@ -677,8 +678,8 @@ function renderCard() {
   // 社会・理科は、カードが出たら問題を読み上げる（1枚ずつ。前の読み上げは stopMedia で止めてある）
   if (autoReadDeck(deck.id)) speak(questionText(card, s.cur), { rate: ttsRate() });
 }
-/** 自動で読み上げる教科：社会・理科だけ（せっていで自動の読み上げを ON にしたとき） */
-const AUTO_READ_DECKS = ['shakai', 'rika'];
+/** 自動で読み上げる教科：社会・理科・入試 歴史だけ（せっていで自動の読み上げを ON にしたとき） */
+const AUTO_READ_DECKS = ['shakai', 'rika', 'nyushi-rekishi'];
 function autoReadDeck(deckId) { return AUTO_READ_DECKS.includes(deckId) && ttsAutoOn(); }
 /** 自動の読み上げ：せっていで「ON」にしたときだけ（はじめは OFF。「🎤 声で回答する」とは別） */
 function ttsAutoOn() { return store.settings.ttsAuto === true; }
